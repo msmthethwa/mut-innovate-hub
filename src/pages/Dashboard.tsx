@@ -42,23 +42,6 @@ const Dashboard = () => {
     upcomingInvigilations: 3
   };
 
-  const recentProjects = [
-    { id: 1, name: "Smart Campus IoT System", manager: "John Doe", status: "In Progress", progress: 75 },
-    { id: 2, name: "Student Portal Enhancement", manager: "Jane Smith", status: "Planning", progress: 25 },
-    { id: 3, name: "AI Research Platform", manager: "Mike Johnson", status: "In Progress", progress: 60 },
-  ];
-
-  const recentTasks = [
-    { id: 1, title: "Database Design Review", assignee: "Sarah Wilson", status: "Pending", dueDate: "2024-01-15" },
-    { id: 2, title: "API Documentation", assignee: "Tom Brown", status: "In Progress", dueDate: "2024-01-18" },
-    { id: 3, title: "Testing Phase", assignee: "Lisa Davis", status: "Completed", dueDate: "2024-01-12" },
-  ];
-
-  const upcomingInvigilations = [
-    { id: 1, subject: "Data Structures", date: "2024-01-20", time: "09:00", invigilator: "Dr. Smith" },
-    { id: 2, subject: "Web Development", date: "2024-01-22", time: "14:00", invigilator: "Prof. Johnson" },
-  ];
-
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Header */}
@@ -155,116 +138,77 @@ const Dashboard = () => {
           </Card>
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Projects */}
-          <Card className="shadow-card">
+        {/* Quick Actions Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Projects Quick Access */}
+          <Card className="shadow-card hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/projects')}>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                Recent Projects
-                <Button variant="outline" size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Project
+                <span className="flex items-center">
+                  <FolderOpen className="h-5 w-5 mr-2 text-primary" />
+                  Projects
+                </span>
+                <Button variant="ghost" size="sm">
+                  View All
                 </Button>
               </CardTitle>
               <CardDescription>
-                Overview of current projects and their progress
+                Manage innovation lab projects
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {recentProjects.map((project) => (
-                  <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex-1">
-                      <h4 className="font-medium">{project.name}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Manager: {project.manager}
-                      </p>
-                      <div className="mt-2">
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span>Progress</span>
-                          <span>{project.progress}%</span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-2">
-                          <div 
-                            className="bg-primary h-2 rounded-full transition-all duration-300" 
-                            style={{ width: `${project.progress}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <Badge 
-                      variant={project.status === "In Progress" ? "default" : "secondary"}
-                      className="ml-4"
-                    >
-                      {project.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+              <div className="text-2xl font-bold text-primary mb-2">{stats.totalProjects}</div>
+              <p className="text-sm text-muted-foreground">
+                {stats.activeProjects} currently active
+              </p>
             </CardContent>
           </Card>
 
-          {/* Recent Tasks */}
-          <Card className="shadow-card">
+          {/* Tasks Quick Access */}
+          <Card className="shadow-card hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/tasks')}>
             <CardHeader>
-              <CardTitle>Recent Tasks</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center">
+                  <CheckCircle className="h-5 w-5 mr-2 text-accent" />
+                  Tasks
+                </span>
+                <Button variant="ghost" size="sm">
+                  View All
+                </Button>
+              </CardTitle>
               <CardDescription>
-                Latest task assignments and updates
+                Track task assignments and progress
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {recentTasks.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex-1">
-                      <h4 className="font-medium">{task.title}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        Assigned to: {task.assignee}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Due: {task.dueDate}
-                      </p>
-                    </div>
-                    <Badge 
-                      variant={
-                        task.status === "Completed" ? "default" :
-                        task.status === "In Progress" ? "secondary" : "outline"
-                      }
-                    >
-                      {task.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+              <div className="text-2xl font-bold text-accent mb-2">{stats.completedTasks}</div>
+              <p className="text-sm text-muted-foreground">
+                {stats.pendingTasks} pending tasks
+              </p>
             </CardContent>
           </Card>
 
-          {/* Upcoming Invigilations */}
-          <Card className="shadow-card lg:col-span-2">
+          {/* Invigilations Quick Access */}
+          <Card className="shadow-card hover:shadow-lg transition-shadow cursor-pointer" onClick={() => navigate('/invigilations')}>
             <CardHeader>
-              <CardTitle>Upcoming Invigilations</CardTitle>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center">
+                  <Calendar className="h-5 w-5 mr-2 text-destructive" />
+                  Invigilations
+                </span>
+                <Button variant="ghost" size="sm">
+                  View All
+                </Button>
+              </CardTitle>
               <CardDescription>
-                Scheduled invigilation assignments
+                Manage exam invigilation schedules
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {upcomingInvigilations.map((exam) => (
-                  <div key={exam.id} className="p-4 border rounded-lg bg-muted/20">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium">{exam.subject}</h4>
-                      <Badge variant="outline">{exam.date}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Time: {exam.time}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Invigilator: {exam.invigilator}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <div className="text-2xl font-bold text-destructive mb-2">{stats.upcomingInvigilations}</div>
+              <p className="text-sm text-muted-foreground">
+                Upcoming this week
+              </p>
             </CardContent>
           </Card>
         </div>
