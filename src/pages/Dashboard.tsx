@@ -1,24 +1,36 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  LayoutDashboard, 
-  FolderOpen, 
-  Users, 
-  Calendar, 
-  Settings, 
+import {
+  LayoutDashboard,
+  FolderOpen,
+  Users,
+  Calendar,
+  Settings,
   Bell,
   Plus,
   TrendingUp,
   Clock,
   CheckCircle
 } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 const Dashboard = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [userRole] = useState<string>("coordinator"); // This will come from authentication
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        navigate('/login');
+      }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
 
   // Mock data - this will come from Supabase
   const stats = {
@@ -55,7 +67,7 @@ const Dashboard = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <img 
-                src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+                src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
                 alt="MUT Innovation Lab" 
                 className="h-10 w-auto"
               />

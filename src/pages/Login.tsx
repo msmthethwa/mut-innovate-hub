@@ -4,18 +4,43 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, LogIn } from "lucide-react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { toast } from "sonner";
 
 const Login = () => {
+  const navigate = useNavigate();
   const [role, setRole] = useState<string>("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Authentication logic will be implemented with Supabase
-    console.log("Login attempt:", { role, email, password });
+    setError(null);
+    setLoading(true);
+
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+      toast.success("Login successful! Welcome back.");
+      console.log("User logged in:", userCredential.user);
+
+      // Redirect to dashboard after successful login
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 1000);
+
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to log in.";
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -24,7 +49,7 @@ const Login = () => {
         {/* Header */}
         <div className="text-center mb-8">
           <img 
-            src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+            src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
             alt="MUT Innovation Lab" 
             className="h-16 w-auto mx-auto mb-4"
           />
@@ -88,8 +113,14 @@ const Login = () => {
                 />
               </div>
 
-              <Button type="submit" className="w-full" size="lg">
-                Sign In
+              {error && (
+                <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
+                  {error}
+                </div>
+              )}
+
+              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                {loading ? "Signing In..." : "Sign In"}
               </Button>
             </form>
 

@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "mut-innovation-lab-7c4e3"
+  },
+  "targets": {
+    "mut-innovation-lab-7c4e3": {
+      "hosting": {
+        "mut-innovationlab": [
+          "mut-innovationlab"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

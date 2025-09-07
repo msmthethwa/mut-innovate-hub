@@ -5,8 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, UserPlus } from "lucide-react";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import { toast } from "sonner";
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -16,13 +19,54 @@ const Register = () => {
     email: "",
     phone: "",
     department: "",
-    reason: ""
+    reason: "",
+    password: ""
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Registration logic will be implemented with Supabase
-    console.log("Registration request:", formData);
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+
+      // Update user profile with displayName as firstName + lastName
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: `${formData.firstName} ${formData.lastName}`
+        });
+      }
+
+      toast.success("Registration successful! You can now log in.");
+      setFormData({
+        role: "",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        department: "",
+        reason: "",
+        password: ""
+      });
+
+      // Redirect to login page after successful registration
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
+
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to register.";
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleInputChange = (field: string, value: string) => {
@@ -35,7 +79,7 @@ const Register = () => {
         {/* Header */}
         <div className="text-center mb-8">
           <img 
-            src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+            src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
             alt="MUT Innovation Lab" 
             className="h-16 w-auto mx-auto mb-4"
           />
@@ -123,6 +167,18 @@ const Register = () => {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Create a strong password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange("password", e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="department">Department/Faculty</Label>
                 <Input
                   id="department"
@@ -145,6 +201,18 @@ const Register = () => {
                 />
               </div>
 
+              {error && (
+                <div className="bg-destructive/10 border border-destructive/20 text-destructive px-4 py-3 rounded-md">
+                  {error}
+                </div>
+              )}
+
+              {success && (
+                <div className="bg-green-100 border border-green-200 text-green-800 px-4 py-3 rounded-md">
+                  {success}
+                </div>
+              )}
+
               <div className="bg-muted/50 p-4 rounded-lg">
                 <h4 className="font-medium mb-2">What happens next?</h4>
                 <ul className="text-sm text-muted-foreground space-y-1">
@@ -155,8 +223,8 @@ const Register = () => {
                 </ul>
               </div>
 
-              <Button type="submit" className="w-full" size="lg">
-                Submit Access Request
+              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                {loading ? "Submitting..." : "Submit Access Request"}
               </Button>
             </form>
 

@@ -12,7 +12,7 @@ const Index = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <img 
-                src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+                src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
                 alt="MUT Innovation Lab" 
                 className="h-12 w-auto"
               />
@@ -166,7 +166,7 @@ const Index = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <img 
-                src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+                src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
                 alt="MUT Innovation Lab" 
                 className="h-8 w-auto"
               />
@@ -176,7 +176,7 @@ const Index = () => {
               </div>
             </div>
             <div className="text-sm text-muted-foreground">
-              © 2024 MUT Innovation Lab. All rights reserved.
+              © 2023 MUT Innovation Lab. All rights reserved.
             </div>
           </div>
         </div>
