@@ -8,7 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, UserPlus } from "lucide-react";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { toast } from "sonner";
 
 const Register = () => {
@@ -40,6 +41,21 @@ const Register = () => {
       if (auth.currentUser) {
         await updateProfile(auth.currentUser, {
           displayName: `${formData.firstName} ${formData.lastName}`
+        });
+      }
+
+      // Save user data to Firestore database
+      if (userCredential.user) {
+        const userRef = doc(db, "users", userCredential.user.uid);
+        await setDoc(userRef, {
+          role: formData.role,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          phone: formData.phone,
+          department: formData.department,
+          reason: formData.reason,
+          createdAt: new Date()
         });
       }
 
@@ -134,7 +150,8 @@ const Register = () => {
                     <SelectValue placeholder="Select the role you're applying for" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="staff">Lab Staff</SelectItem>
+                    <SelectItem value="coordinator">Coordinator</SelectItem>
+                    <SelectItem value="lab-staff">Lab Staff</SelectItem>
                     <SelectItem value="intern">Intern</SelectItem>
                     <SelectItem value="lecturer">Lecturer</SelectItem>
                   </SelectContent>

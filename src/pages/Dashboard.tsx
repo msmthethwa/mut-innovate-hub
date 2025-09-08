@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import {
   LayoutDashboard,
   FolderOpen,
@@ -22,7 +22,7 @@ import { auth } from "@/lib/firebase";
 const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [userRole, setUserRole] = useState<string>("coordinator"); // This will come from authentication
+  const [userRole, setUserRole] = useState<string>("");
 
   // Role-specific dashboard content
   const getDashboardContent = () => {
@@ -190,7 +190,14 @@ const Dashboard = () => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
+      if (user) {
+        const role = localStorage.getItem("userRole");
+        if (role) {
+          setUserRole(role);
+        } else {
+          navigate('/login');
+        }
+      } else {
         navigate('/login');
       }
     });
@@ -218,17 +225,6 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <Select value={userRole} onValueChange={setUserRole}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Select Role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="coordinator">Coordinator</SelectItem>
-                  <SelectItem value="lab-staff">Lab Staff</SelectItem>
-                  <SelectItem value="intern">Intern</SelectItem>
-                  <SelectItem value="lecturer">Lecturer</SelectItem>
-                </SelectContent>
-              </Select>
               <Button variant="outline" size="sm">
                 <Bell className="h-4 w-4 mr-2" />
                 Notifications
