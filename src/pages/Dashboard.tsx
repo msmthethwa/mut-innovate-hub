@@ -13,7 +13,8 @@ import {
   Plus,
   TrendingUp,
   Clock,
-  CheckCircle
+  CheckCircle,
+  User
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
@@ -230,7 +231,11 @@ const Dashboard = () => {
                 Notifications
                 <Badge variant="destructive" className="ml-2">3</Badge>
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={() => navigate('/profile')}>
+                <User className="h-4 w-4 mr-2" />
+                Profile
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => navigate('/settings')}>
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
               </Button>
