@@ -175,7 +175,7 @@ const Dashboard = () => {
             },
             {
               title: "Invigilations",
-              description: "Manage exam invigilation schedules",
+              description: "View all invigilation requests",
               route: "/invigilations",
               icon: Calendar,
               color: "text-destructive",

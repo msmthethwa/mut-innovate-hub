@@ -8,8 +8,119 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Bell, Lock, Palette, Globe, Shield } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+
+type AppSettings = {
+  // General
+  language: "english" | "afrikaans" | "zulu";
+  timezone: "sast" | "utc" | "gmt";
+  autoSave: boolean;
+  showTooltips: boolean;
+  // Notifications
+  emailNotifications: boolean;
+  taskAssignments: boolean;
+  projectUpdates: boolean;
+  invigilationAssignments: boolean;
+  systemAnnouncements: boolean;
+  // Security
+  loginAlerts: boolean;
+  // Appearance
+  theme: "light" | "dark" | "system";
+  fontSize: "small" | "medium" | "large";
+  compactMode: boolean;
+  highContrast: boolean;
+};
+
+const DEFAULT_SETTINGS: AppSettings = {
+  language: "english",
+  timezone: "sast",
+  autoSave: true,
+  showTooltips: true,
+  emailNotifications: true,
+  taskAssignments: true,
+  projectUpdates: true,
+  invigilationAssignments: true,
+  systemAnnouncements: false,
+  loginAlerts: true,
+  theme: "light",
+  fontSize: "medium",
+  compactMode: false,
+  highContrast: false,
+};
+
+const STORAGE_KEY = "mut.app.settings";
+
+function loadSettings(): AppSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_SETTINGS, ...parsed } as AppSettings;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function applyAppearance(settings: AppSettings) {
+  const root = document.documentElement;
+  // Theme
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolvedTheme = settings.theme === "system" ? (prefersDark ? "dark" : "light") : settings.theme;
+  root.classList.remove("light", "dark");
+  root.classList.add(resolvedTheme);
+  // Font size via CSS variable on root
+  const sizeMap: Record<AppSettings["fontSize"], string> = {
+    small: "14px",
+    medium: "16px",
+    large: "18px",
+  };
+  root.style.setProperty("--app-base-font-size", sizeMap[settings.fontSize]);
+  // Compact and contrast classes on body
+  document.body.classList.toggle("compact-mode", settings.compactMode);
+  document.body.classList.toggle("high-contrast", settings.highContrast);
+}
 
 const Settings = () => {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [initialSettings] = useState<AppSettings>(() => settings);
+
+  // Apply appearance on mount and whenever related settings change
+  useEffect(() => {
+    applyAppearance(settings);
+  }, [settings.theme, settings.fontSize, settings.compactMode, settings.highContrast]);
+
+  const hasChanges = useMemo(() => JSON.stringify(settings) !== JSON.stringify(initialSettings), [settings, initialSettings]);
+
+  function persist(newSettings: AppSettings) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+  }
+
+  function handleUpdate<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
+    setSettings((prev) => {
+      const next = { ...prev, [key]: value } as AppSettings;
+      if (next.autoSave) {
+        persist(next);
+        applyAppearance(next);
+      }
+      return next;
+    });
+  }
+
+  function handleSave() {
+    persist(settings);
+    applyAppearance(settings);
+    toast({ title: "Settings saved", description: "Your preferences have been updated." });
+  }
+
+  function handleCancel() {
+    const loaded = loadSettings();
+    setSettings(loaded);
+    applyAppearance(loaded);
+    toast({ title: "Changes discarded", description: "Reverted to the last saved settings." });
+  }
+
   return (
     <div className="min-h-screen bg-gradient-subtle">
       <div className="container mx-auto px-4 py-8">
@@ -46,7 +157,7 @@ const Settings = () => {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="language">Language</Label>
-                  <Select defaultValue="english">
+                  <Select value={settings.language} onValueChange={(v) => handleUpdate("language", v as AppSettings["language"]) }>
                     <SelectTrigger>
                       <SelectValue placeholder="Select language" />
                     </SelectTrigger>
@@ -60,7 +171,7 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Select defaultValue="sast">
+                  <Select value={settings.timezone} onValueChange={(v) => handleUpdate("timezone", v as AppSettings["timezone"]) }>
                     <SelectTrigger>
                       <SelectValue placeholder="Select timezone" />
                     </SelectTrigger>
@@ -79,7 +190,7 @@ const Settings = () => {
                       Automatically save changes without confirmation
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.autoSave} onCheckedChange={(v) => handleUpdate("autoSave", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -89,7 +200,7 @@ const Settings = () => {
                       Display helpful tooltips throughout the interface
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.showTooltips} onCheckedChange={(v) => handleUpdate("showTooltips", v)} />
                 </div>
               </CardContent>
             </Card>
@@ -112,7 +223,7 @@ const Settings = () => {
                       Receive email notifications for important updates
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.emailNotifications} onCheckedChange={(v) => handleUpdate("emailNotifications", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -122,7 +233,7 @@ const Settings = () => {
                       Get notified when you're assigned new tasks
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.taskAssignments} onCheckedChange={(v) => handleUpdate("taskAssignments", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -132,7 +243,7 @@ const Settings = () => {
                       Receive notifications for project status changes
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.projectUpdates} onCheckedChange={(v) => handleUpdate("projectUpdates", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -142,7 +253,7 @@ const Settings = () => {
                       Get notified about invigilation duties
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.invigilationAssignments} onCheckedChange={(v) => handleUpdate("invigilationAssignments", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -152,7 +263,7 @@ const Settings = () => {
                       Receive important system-wide announcements
                     </p>
                   </div>
-                  <Switch />
+                  <Switch checked={settings.systemAnnouncements} onCheckedChange={(v) => handleUpdate("systemAnnouncements", v)} />
                 </div>
               </CardContent>
             </Card>
@@ -196,7 +307,7 @@ const Settings = () => {
                       Add an extra layer of security to your account
                     </p>
                   </div>
-                  <Button variant="outline">Enable</Button>
+                  <Button variant="outline" onClick={() => toast({ title: "Coming soon", description: "Two-factor authentication will be available later." })}>Enable</Button>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -206,7 +317,7 @@ const Settings = () => {
                       Get notified of new login attempts
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch checked={settings.loginAlerts} onCheckedChange={(v) => handleUpdate("loginAlerts", v)} />
                 </div>
               </CardContent>
             </Card>
@@ -224,7 +335,7 @@ const Settings = () => {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label>Theme</Label>
-                  <Select defaultValue="light">
+                  <Select value={settings.theme} onValueChange={(v) => handleUpdate("theme", v as AppSettings["theme"]) }>
                     <SelectTrigger>
                       <SelectValue placeholder="Select theme" />
                     </SelectTrigger>
@@ -238,7 +349,7 @@ const Settings = () => {
 
                 <div className="space-y-2">
                   <Label>Font size</Label>
-                  <Select defaultValue="medium">
+                  <Select value={settings.fontSize} onValueChange={(v) => handleUpdate("fontSize", v as AppSettings["fontSize"]) }>
                     <SelectTrigger>
                       <SelectValue placeholder="Select font size" />
                     </SelectTrigger>
@@ -257,7 +368,7 @@ const Settings = () => {
                       Use more compact spacing throughout the interface
                     </p>
                   </div>
-                  <Switch />
+                  <Switch checked={settings.compactMode} onCheckedChange={(v) => handleUpdate("compactMode", v)} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -267,7 +378,7 @@ const Settings = () => {
                       Increase contrast for better accessibility
                     </p>
                   </div>
-                  <Switch />
+                  <Switch checked={settings.highContrast} onCheckedChange={(v) => handleUpdate("highContrast", v)} />
                 </div>
               </CardContent>
             </Card>
@@ -276,8 +387,8 @@ const Settings = () => {
 
         {/* Save Changes */}
         <div className="flex justify-end gap-4 mt-8">
-          <Button variant="outline">Cancel</Button>
-          <Button className="bg-mut-primary hover:bg-mut-primary/90">
+          <Button variant="outline" onClick={handleCancel} disabled={!hasChanges && settings.autoSave}>Cancel</Button>
+          <Button className="bg-mut-primary hover:bg-mut-primary/90" onClick={handleSave} disabled={!hasChanges && settings.autoSave}>
             Save Changes
           </Button>
         </div>

@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Calendar,
   Clock,
@@ -16,91 +18,199 @@ import {
   Users
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { db, auth } from "@/lib/firebase";
+import { addDoc, collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, getDoc, getDocs, where } from "firebase/firestore";
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { useToast } from "@/hooks/use-toast";
+
+type Invigilation = {
+  id: string;
+  subject: string;
+  date: string;
+  time: string;
+  venue: string;
+  lecturer: string;
+  userId: string;
+  studentCount: number;
+  invigilatorCount?: number;
+  status: "Confirmed" | "Pending" | "Requested";
+  type: "Final Exam" | "Mid-term Exam" | "Practical Test" | "Quiz" | "Final Project" | string;
+  notes?: string;
+  assignedInvigilators?: string[];
+  assignmentHistory?: { at: any; by: string; action: string; assigned: string[] }[];
+};
+
+const emptyForm: Omit<Invigilation, "id"> = {
+  subject: "",
+  date: "",
+  time: "",
+  venue: "",
+  lecturer: "",
+  userId: "",
+  studentCount: 0,
+  invigilatorCount: 1,
+  status: "Requested",
+  type: "Quiz",
+  notes: "",
+  assignedInvigilators: [],
+};
 
 const Invigilations = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [invigilations, setInvigilations] = useState<Invigilation[]>([]);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isAssignOpen, setIsAssignOpen] = useState(false);
+  const [selected, setSelected] = useState<Invigilation | null>(null);
+  const [form, setForm] = useState<Omit<Invigilation, "id">>(emptyForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
+  const [userRole, setUserRole] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
 
-  // Mock data - this will come from Supabase
-  const invigilations = [
-    { 
-      id: 1, 
-      subject: "Data Structures & Algorithms", 
-      date: "2024-01-20", 
-      time: "09:00 - 12:00", 
-      venue: "Computer Lab A",
-      invigilator: "Dr. Smith",
-      lecturer: "Prof. Johnson",
-      studentCount: 45,
-      status: "Confirmed",
-      type: "Final Exam",
-      notes: "Calculators not allowed"
-    },
-    { 
-      id: 2, 
-      subject: "Web Development", 
-      date: "2024-01-22", 
-      time: "14:00 - 17:00", 
-      venue: "Computer Lab B",
-      invigilator: "Sarah Wilson",
-      lecturer: "Dr. Brown",
-      studentCount: 32,
-      status: "Pending",
-      type: "Practical Test",
-      notes: "Laptops required for practical component"
-    },
-    { 
-      id: 3, 
-      subject: "Database Management", 
-      date: "2024-01-25", 
-      time: "10:00 - 13:00", 
-      venue: "Lecture Hall 1",
-      invigilator: "Mike Johnson",
-      lecturer: "Dr. Davis",
-      studentCount: 60,
-      status: "Confirmed",
-      type: "Mid-term Exam",
-      notes: "Written exam only"
-    },
-    { 
-      id: 4, 
-      subject: "Mobile App Development", 
-      date: "2024-01-28", 
-      time: "09:00 - 11:00", 
-      venue: "Computer Lab C",
-      invigilator: "Tom Brown",
-      lecturer: "Prof. Wilson",
-      studentCount: 25,
-      status: "Requested",
-      type: "Quiz",
-      notes: "Android Studio setup required"
-    },
-    { 
-      id: 5, 
-      subject: "Artificial Intelligence", 
-      date: "2024-01-30", 
-      time: "14:30 - 17:30", 
-      venue: "Computer Lab A",
-      invigilator: "Lisa Davis",
-      lecturer: "Dr. Smith",
-      studentCount: 38,
-      status: "Confirmed",
-      type: "Final Project",
-      notes: "Students will present their AI projects"
-    },
-  ];
+  useEffect(() => {
+    if (!currentUser) return;
+    const q = query(collection(db, "invigilations"), orderBy("date", "asc"));
+    const unsub = onSnapshot(q, (snap) => {
+      const items: Invigilation[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      setInvigilations(items);
+    });
+    return () => unsub();
+  }, [currentUser]);
 
-  const filteredInvigilations = invigilations.filter(invigilation => {
-    const matchesSearch = invigilation.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invigilation.invigilator.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invigilation.lecturer.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || invigilation.status.toLowerCase() === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        setUserName(user.displayName || user.email || "");
+        try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUserRole(userData.role || "");
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserRole("");
+        setUserName("");
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  function resetForm() {
+    setForm(emptyForm);
+    setErrors({});
+  }
+
+  function validate(values: Omit<Invigilation, "id">) {
+    const e: Record<string, string> = {};
+    if (!values.subject.trim()) e.subject = "Subject is required";
+    if (!values.date) e.date = "Date is required";
+    if (!values.time.trim()) e.time = "Time is required";
+    if (!values.venue.trim()) e.venue = "Venue is required";
+    if (values.studentCount == null || isNaN(Number(values.studentCount)) || Number(values.studentCount) < 0) e.studentCount = "Students must be 0 or more";
+    if (values.invigilatorCount == null || isNaN(Number(values.invigilatorCount)) || Number(values.invigilatorCount) < 1) e.invigilatorCount = "Invigilators must be at least 1";
+    return e;
+  }
+
+  async function checkVenueAvailability(venue: string, date: string, time: string, excludeId?: string) {
+    const conflicts = invigilations.filter(inv => 
+      inv.venue === venue && 
+      inv.date === date && 
+      inv.status === "Confirmed" &&
+      inv.id !== excludeId &&
+      overlaps(inv.date, inv.time, date, time)
+    );
+    return conflicts.length === 0;
+  }
+
+  async function submitCreate() {
+    if (!currentUser) {
+      toast({ title: "Authentication required", description: "Please log in to create a request.", variant: "destructive" as any });
+      return;
+    }
+    try {
+      const merged = { ...form, lecturer: userName, userId: currentUser.uid };
+      const e = validate(merged);
+      setErrors(e);
+      if (Object.keys(e).length) return;
+      
+      // Check venue availability
+      const venueAvailable = await checkVenueAvailability(merged.venue, merged.date, merged.time);
+      if (!venueAvailable) {
+        toast({ 
+          title: "Venue not available", 
+          description: "The selected venue is not available at this time. Please choose a different venue or time slot.", 
+          variant: "destructive" as any 
+        });
+        return;
+      }
+      
+      const payload = {
+        ...merged,
+        studentCount: Number(form.studentCount) || 0,
+        invigilatorCount: Number(form.invigilatorCount) || 1,
+        assignedInvigilators: [],
+        status: "Requested",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      } as any;
+      await addDoc(collection(db, "invigilations"), payload);
+      setIsCreateOpen(false);
+      resetForm();
+      toast({ title: "Request submitted", description: "Your invigilation request has been created." });
+    } catch (e) {
+      toast({ title: "Failed to submit", description: "Please try again.", variant: "destructive" as any });
+    }
+  }
+
+  async function submitEdit() {
+    if (!selected) return;
+    try {
+      // Block lecturer editing if there are assignments
+      if (userRole !== "admin" && selected.assignedInvigilators && selected.assignedInvigilators.length > 0) {
+        toast({ title: "Edit blocked", description: "This request already has assigned invigilators.", variant: "destructive" as any });
+        return;
+      }
+      const e = validate(form);
+      setErrors(e);
+      if (Object.keys(e).length) return;
+      const ref = doc(db, "invigilations", selected.id);
+      const payload = { ...form, studentCount: Number(form.studentCount) || 0, invigilatorCount: Number(form.invigilatorCount) || 1, updatedAt: serverTimestamp() } as any;
+      await updateDoc(ref, payload);
+      setIsEditOpen(false);
+      setSelected(null);
+      toast({ title: "Updated", description: "Invigilation updated successfully." });
+    } catch (e) {
+      toast({ title: "Failed to update", description: "Please try again.", variant: "destructive" as any });
+    }
+  }
+
+  const filteredInvigilations = useMemo(() => {
+    const term = searchTerm.toLowerCase();
+    return invigilations.filter((invigilation) => {
+      // Role-based filtering: lecturers see only their own requests
+      const matchesRole = userRole === "admin" || userRole === "coordinator" || invigilation.userId === currentUser?.uid;
+      const matchesSearch =
+        invigilation.subject.toLowerCase().includes(term) ||
+        invigilation.lecturer.toLowerCase().includes(term) ||
+        invigilation.venue.toLowerCase().includes(term);
+      const matchesStatus = statusFilter === "all" || invigilation.status.toLowerCase() === statusFilter;
+      return matchesRole && matchesSearch && matchesStatus;
+    });
+  }, [invigilations, searchTerm, statusFilter, userRole, currentUser]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case "Assigned": return "default";
       case "Confirmed": return "default";
       case "Pending": return "secondary";
       case "Requested": return "outline";
@@ -119,6 +229,134 @@ const Invigilations = () => {
     }
   };
 
+  // Coordinator assignment dialog state
+  type Staff = { id: string; userId?: string; name?: string; email?: string; active?: boolean; available?: boolean };
+  const [staffPool, setStaffPool] = useState<Staff[]>([]);
+  const [assignWorking, setAssignWorking] = useState(false);
+  const [assignStatus, setAssignStatus] = useState<Invigilation["status"]>("Requested");
+  const [assignedIds, setAssignedIds] = useState<string[]>([]);
+  const [idToName, setIdToName] = useState<Record<string, string>>({});
+  const [idToEmail, setIdToEmail] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const map: Record<string, string> = {};
+        // Load staff names
+        const staffSnap = await getDocs(query(collection(db, "staff")));
+        staffSnap.docs.forEach((d) => {
+          const data = d.data() as any;
+          const key = (data.userId as string) || d.id;
+          const firstName = data.firstName || "";
+          const lastName = data.lastName || "";
+          const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.email || key);
+          const email = data.email || "";
+          if (key && !map[key]) map[key] = name;
+          if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+        });
+        // Load users with staff/intern role as fallback
+        const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
+        usersSnap.docs.forEach((d) => {
+          const data = d.data() as any;
+          const key = d.id;
+          const firstName = data.firstName || "";
+          const lastName = data.lastName || "";
+          const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.displayName || data.email || key);
+          const email = data.email || "";
+          if (key && !map[key]) map[key] = name;
+          if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+        });
+        setIdToName(map);
+      } catch (e) {
+        // ignore name loading errors in UI
+      }
+    })();
+  }, []);
+
+  async function loadStaff() {
+    const snap = await getDocs(query(collection(db, "staff"), where("active", "==", true)));
+    const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    setStaffPool(list);
+    return list as Staff[];
+  }
+
+  function parseTimeRange(range: string) {
+    const [start, end] = range.split("-").map((s) => s.trim());
+    const toMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    return { start: toMinutes(start || "00:00"), end: toMinutes(end || start || "00:00") };
+  }
+
+  function overlaps(aDate: string, aTime: string, bDate: string, bTime: string) {
+    if (aDate !== bDate) return false;
+    const a = parseTimeRange(aTime);
+    const b = parseTimeRange(bTime);
+    return a.start < b.end && b.start < a.end;
+  }
+
+  async function handleAutoAssign(inv: Invigilation) {
+    setAssignWorking(true);
+    try {
+      let freshPool = await loadStaff();
+      if (!freshPool || freshPool.length === 0) {
+        // Fallback: derive pool from users collection by role
+        const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
+        freshPool = usersSnap.docs.map((d) => ({ id: d.id, userId: d.id, ...(d.data() as any) })) as Staff[];
+      }
+      const needed = inv.invigilatorCount || 1;
+      const available = freshPool.filter((s) => (s as any).available !== false);
+      const shuffled = [...available].sort(() => Math.random() - 0.5);
+      const chosen: string[] = [];
+      for (const s of shuffled) {
+        const sid = s.userId || s.id;
+        const conflict = invigilations.some((other) =>
+          (other.assignedInvigilators || []).includes(sid) && overlaps(inv.date, inv.time, other.date, other.time)
+        );
+        if (!conflict) chosen.push(sid);
+        if (chosen.length >= needed) break;
+      }
+      setAssignedIds(chosen);
+      toast({ title: "Auto-assign complete", description: `Selected ${chosen.length}/${needed}` });
+    } finally {
+      setAssignWorking(false);
+    }
+  }
+
+  async function toggleAvailability(staffId: string, next: boolean) {
+    await updateDoc(doc(db, "staff", staffId), { available: next });
+    await loadStaff();
+  }
+
+  async function saveAssignment() {
+    if (!selected) return;
+    
+    // Check if we have enough invigilators
+    const needed = selected.invigilatorCount || 1;
+    if (assignedIds.length === 0) {
+      toast({ 
+        title: "No invigilators assigned", 
+        description: "Please assign at least one invigilator before saving.", 
+        variant: "destructive" as any 
+      });
+      return;
+    }
+    
+    const ref = doc(db, "invigilations", selected.id);
+    const newStatus = assignedIds.length >= needed ? "Assigned" : "Pending";
+    const historyEntry = { at: new Date(), by: currentUser?.uid || "", action: "assign", assigned: assignedIds };
+    await updateDoc(ref, {
+      assignedInvigilators: assignedIds,
+      status: newStatus,
+      assignmentHistory: [...(selected.assignmentHistory || []), historyEntry],
+      updatedAt: serverTimestamp(),
+    } as any);
+    setIsAssignOpen(false);
+    setSelected(null);
+    toast({ title: "Assignments saved", description: `Assigned ${assignedIds.length}/${needed} invigilators. Status updated to ${newStatus}.` });
+  }
+
   return (
     <div className="min-h-screen bg-muted/20">
       {/* Header */}
@@ -127,23 +365,105 @@ const Invigilations = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <img 
-                src="https://i.ibb.co/HfwCH8cD/Innovation-Lab-Logo.png" 
+                src="https://i.ibb.co/1fgK6LDc/9f757fa6-349a-4388-b958-84594b83c836.png" 
                 alt="MUT Innovation Lab" 
                 className="h-10 w-auto"
               />
               <div>
-                <h1 className="text-xl font-bold">Invigilations</h1>
-                <p className="text-sm text-muted-foreground">Manage exam invigilation assignments</p>
+                <h1 className="text-xl font-bold">
+                  {userRole === "lecturer" ? "Invigilation Requests" : "Manage Invigilation Assignments"}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  {userRole === "lecturer"
+                    ? "View and manage your invigilation requests"
+                    : "Manage invigilation assignments"}
+                </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
               <Button onClick={() => navigate('/dashboard')}>
                 Back to Dashboard
               </Button>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Request Invigilation
-              </Button>
+              {userRole !== "coordinator" && (
+                <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) resetForm(); }}>
+                  <DialogTrigger asChild>
+                    <Button onClick={() => setIsCreateOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Request Invigilation
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Request Invigilation</DialogTitle>
+                    <DialogDescription>Fill in the exam details to create a request.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3">
+                    <div>
+                      <label className="text-sm font-medium">Subject</label>
+                      <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="e.g., Data Structures & Algorithms" />
+                      {errors.subject && <p className="text-xs text-destructive mt-1">{errors.subject}</p>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">Date</label>
+                        <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                        {errors.date && <p className="text-xs text-destructive mt-1">{errors.date}</p>}
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Time</label>
+                        <Input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} placeholder="09:00 - 12:00" />
+                        {errors.time && <p className="text-xs text-destructive mt-1">{errors.time}</p>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">Venue</label>
+                        <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} placeholder="Computer Lab A" />
+                        {errors.venue && <p className="text-xs text-destructive mt-1">{errors.venue}</p>}
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Students</label>
+                        <Input type="number" min={0} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: Number(e.target.value) })} />
+                        {errors.studentCount && <p className="text-xs text-destructive mt-1">{errors.studentCount}</p>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">Invigilators needed</label>
+                        <Input type="number" min={1} value={form.invigilatorCount} onChange={(e) => setForm({ ...form, invigilatorCount: Number(e.target.value) })} />
+                        {errors.invigilatorCount && <p className="text-xs text-destructive mt-1">{errors.invigilatorCount}</p>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-medium">Type</label>
+                        <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Final Exam">Final Exam</SelectItem>
+                            <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
+                            <SelectItem value="Practical Test">Practical Test</SelectItem>
+                            <SelectItem value="Quiz">Quiz</SelectItem>
+                            <SelectItem value="Final Project">Final Project</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {/* Status hidden for lecturers; shown only to admin/coordinator in future */}
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">Notes</label>
+                      <Textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional information or constraints" />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => { setIsCreateOpen(false); resetForm(); }}>Cancel</Button>
+                    <Button onClick={submitCreate}>Submit Request</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
             </div>
           </div>
         </div>
@@ -167,6 +487,7 @@ const Invigilations = () => {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="assigned">Assigned</SelectItem>
               <SelectItem value="confirmed">Confirmed</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="requested">Requested</SelectItem>
@@ -215,7 +536,7 @@ const Invigilations = () => {
                   <div className="flex items-center text-sm">
                     <User className="h-4 w-4 mr-2 text-muted-foreground" />
                     <div>
-                      <p className="font-medium">Invigilator: {invigilation.invigilator}</p>
+                      <p className="font-medium">Invigilators needed: {invigilation.invigilatorCount || 1}</p>
                       <p className="text-muted-foreground">Lecturer: {invigilation.lecturer}</p>
                     </div>
                   </div>
@@ -224,6 +545,12 @@ const Invigilations = () => {
                     <Users className="h-4 w-4 mr-2 text-muted-foreground" />
                     <span>{invigilation.studentCount} students</span>
                   </div>
+
+                  {(invigilation.assignedInvigilators && invigilation.assignedInvigilators.length > 0) && (
+                    <div className="text-sm">
+                      <p className="font-medium">{invigilation.assignedInvigilators.length} Invigilator{invigilation.assignedInvigilators.length !== 1 ? 's' : ''} Assigned</p>
+                    </div>
+                  )}
 
                   {invigilation.notes && (
                     <div className="bg-muted/50 p-3 rounded-lg">
@@ -238,12 +565,341 @@ const Invigilations = () => {
                   )}
 
                   <div className="flex gap-2 pt-2">
-                    <Button variant="outline" size="sm" className="flex-1">
-                      View Details
-                    </Button>
-                    <Button size="sm" className="flex-1">
-                      {invigilation.status === "Requested" ? "Assign" : "Edit"}
-                    </Button>
+                    <Dialog open={isDetailsOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsDetailsOpen(false); setSelected(null); } }}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setIsDetailsOpen(true); }}>
+                          View Details
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+                        <DialogHeader className="pb-4 flex-shrink-0">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <DialogTitle className="text-xl font-semibold text-foreground">{invigilation.subject}</DialogTitle>
+                              <DialogDescription className="text-sm text-muted-foreground mt-1">
+                                {invigilation.type}
+                              </DialogDescription>
+                            </div>
+                            <Badge variant={getStatusColor(invigilation.status)} className="ml-4">
+                              {invigilation.status}
+                            </Badge>
+                          </div>
+                        </DialogHeader>
+
+                        <div className="flex-1 overflow-y-auto space-y-6 pr-1">
+                          {/* Basic Information Section */}
+                          <div className="bg-muted/30 rounded-lg p-4">
+                            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                              <BookOpen className="h-4 w-4 mr-2" />
+                              Exam Details
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="flex items-center text-sm">
+                                <Calendar className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.date}</p>
+                                  <p className="text-xs text-muted-foreground">Date</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center text-sm">
+                                <Clock className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.time}</p>
+                                  <p className="text-xs text-muted-foreground">Time</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center text-sm">
+                                <MapPin className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.venue}</p>
+                                  <p className="text-xs text-muted-foreground">Venue</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center text-sm">
+                                <Users className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.studentCount} students</p>
+                                  <p className="text-xs text-muted-foreground">Expected attendance</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Personnel Information Section */}
+                          <div className="bg-muted/30 rounded-lg p-4">
+                            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                              <User className="h-4 w-4 mr-2" />
+                              Personnel
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="flex items-center text-sm">
+                                <User className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.lecturer}</p>
+                                  <p className="text-xs text-muted-foreground">Lecturer</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center text-sm">
+                                <User className="h-4 w-4 mr-3 text-muted-foreground" />
+                                <div>
+                                  <p className="font-medium text-foreground">{invigilation.invigilatorCount || 1} needed</p>
+                                  <p className="text-xs text-muted-foreground">Invigilators required</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Assigned Invigilators Section */}
+                          {(invigilation.assignedInvigilators && invigilation.assignedInvigilators.length > 0) && (
+                            <div className="bg-muted/30 rounded-lg p-4">
+                              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                                <Users className="h-4 w-4 mr-2" />
+                                Assigned Invigilators ({invigilation.assignedInvigilators.length})
+                              </h3>
+                              <div className="space-y-3">
+                                {invigilation.assignedInvigilators.map((id) => (
+                                  <div key={id} className="flex items-center justify-between bg-background rounded-md p-3 border">
+                                    <div>
+                                      <p className="font-medium text-foreground">{idToName[id] || id}</p>
+                                      {idToEmail[id] && <p className="text-xs text-muted-foreground">{idToEmail[id]}</p>}
+                                    </div>
+                                    <Badge variant="outline" className="text-xs">
+                                      Assigned
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Assignment History Section */}
+                          {invigilation.assignmentHistory && invigilation.assignmentHistory.length > 0 && (
+                            <div className="bg-muted/30 rounded-lg p-4">
+                              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                                <Clock className="h-4 w-4 mr-2" />
+                                Assignment History
+                              </h3>
+                              <div className="space-y-3 max-h-40 overflow-auto">
+                                {invigilation.assignmentHistory.map((h, idx) => (
+                                  <div key={idx} className="bg-background rounded-md p-3 border">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1">
+                                        <p className="text-sm font-medium text-foreground capitalize">{h.action}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          By: {idToName[h.by] || h.by}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {h.at instanceof Date ? h.at.toLocaleString() : 'Unknown date'}
+                                        </p>
+                                      </div>
+                                      <div className="text-right">
+                                        <p className="text-xs text-muted-foreground">
+                                          {h.assigned?.length || 0} assigned
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {h.assigned && h.assigned.length > 0 && (
+                                      <div className="mt-2 pt-2 border-t">
+                                        <p className="text-xs text-muted-foreground">
+                                          {(h.assigned || []).map(id => idToName[id] || id).join(', ')}
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Notes Section */}
+                          {invigilation.notes && (
+                            <div className="bg-muted/30 rounded-lg p-4">
+                              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                                <BookOpen className="h-4 w-4 mr-2" />
+                                Additional Notes
+                              </h3>
+                              <div className="bg-background rounded-md p-3 border">
+                                <p className="text-sm text-muted-foreground leading-relaxed">{invigilation.notes}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <DialogFooter className="pt-6">
+                          <Button variant="outline" onClick={() => { setIsDetailsOpen(false); setSelected(null); }}>
+                            Close
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                    {(userRole === "admin" || userRole === "coordinator") ? (
+                      <Dialog open={isAssignOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsAssignOpen(false); setSelected(null); } }}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setAssignedIds(invigilation.assignedInvigilators || []); setAssignStatus(invigilation.status); setIsAssignOpen(true); }}>
+                            Assign
+                          </Button>
+                        </DialogTrigger>
+                      <DialogContent className="max-w-2xl p-6 bg-white rounded-lg shadow-lg">
+                        <DialogHeader>
+                          <DialogTitle className="text-2xl font-semibold mb-2">Assign Invigilators</DialogTitle>
+                          <DialogDescription className="text-sm text-gray-600 mb-6">Randomize or manually adjust assignments. Manage availability as needed.</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-6">
+                          <div className="flex items-center justify-between border-b pb-4">
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">Needed: {invigilation.invigilatorCount || 1}</p>
+                              <p className="text-sm font-medium text-gray-700">Assigned: {assignedIds.length}</p>
+                            </div>
+                            <div className="flex gap-3">
+                              <Button variant="outline" onClick={() => handleAutoAssign(invigilation)} disabled={assignWorking} className="px-4 py-2 text-sm font-medium rounded-md hover:bg-gray-100 transition">
+                                Auto-assign
+                              </Button>
+                              <Badge variant={getStatusColor(assignStatus)} className="text-base font-semibold px-3 py-1 rounded-full">
+                                {assignStatus}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-6">
+                            {staffPool.length > 0 && (
+                              <div>
+                                <p className="text-sm font-semibold mb-3 text-gray-800">Available Staff</p>
+                                <div className="space-y-3 max-h-64 overflow-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                  {staffPool.map((s) => (
+                                    <div key={s.id} className="flex items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition">
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-900">{s.name || s.email || s.id}</p>
+                                        <p className={`text-xs ${s.available === false ? "text-red-500" : "text-green-600"}`}>
+                                          {s.available === false ? "Unavailable" : "Available"}
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.includes(s.id) ? prev : [...prev, s.id])} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                          Add
+                                        </Button>
+                                        <Button size="sm" variant="ghost" onClick={() => toggleAvailability(s.id, !(s.available !== false))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                          {(s.available !== false) ? "Mark Unavailable" : "Mark Available"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-sm font-semibold mb-3 text-gray-800">Assigned</p>
+                              <div className="space-y-3 max-h-64 overflow-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                {assignedIds.map((id) => (
+                                  <div key={id} className="flex items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition">
+                                    <div>
+                                      <p className="text-sm font-semibold text-gray-900">{idToName[id] || id}</p>
+                                      {idToEmail[id] && <p className="text-xs text-gray-500">{idToEmail[id]}</p>}
+                                    </div>
+                                    <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.filter((x) => x !== id))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                      Remove
+                                    </Button>
+                                  </div>
+                                ))}
+                                {assignedIds.length === 0 && <p className="text-xs text-gray-500">No one assigned</p>}
+                              </div>
+                            </div>
+                          </div>
+                          {selected?.assignmentHistory && selected.assignmentHistory.length > 0 && (
+                            <div>
+                              <p className="text-sm font-semibold mb-2 text-gray-800">Assignment History</p>
+                              <div className="text-xs text-gray-500 space-y-2 max-h-32 overflow-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                {selected.assignmentHistory.map((h, idx) => (
+                                  <div key={idx} className="border-b border-gray-200 pb-1 last:border-0">
+                                    Action: <span className="capitalize font-medium">{h.action}</span> • By: {idToName[h.by] || h.by} • Assigned: {(h.assigned || []).length}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <DialogFooter className="pt-6 flex justify-end space-x-4">
+                          <Button variant="outline" onClick={() => { setIsAssignOpen(false); setSelected(null); }} className="px-5 py-2 rounded-md font-medium hover:bg-gray-100 transition">
+                            Cancel
+                          </Button>
+                          <Button onClick={saveAssignment} className="px-5 py-2 rounded-md font-semibold bg-primary text-white hover:bg-primary/90 transition">
+                            Save
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                      </Dialog>
+                    ) : (
+                      <Dialog open={isEditOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsEditOpen(false); setSelected(null); } }}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setForm({ subject: invigilation.subject, date: invigilation.date, time: invigilation.time, venue: invigilation.venue, lecturer: invigilation.lecturer, userId: invigilation.userId, studentCount: invigilation.studentCount, invigilatorCount: invigilation.invigilatorCount || 1, status: invigilation.status, type: invigilation.type, notes: invigilation.notes || "", assignedInvigilators: invigilation.assignedInvigilators || [] }); setIsEditOpen(true); }}>
+                            Edit
+                          </Button>
+                        </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Edit Invigilation</DialogTitle>
+                          <DialogDescription>Update details and save changes.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-3">
+                          <div>
+                            <label className="text-sm font-medium">Subject</label>
+                            <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium">Date</label>
+                              <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Time</label>
+                              <Input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium">Venue</label>
+                              <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
+                            </div>
+                            {/* Lecturer field hidden for lecturers; coordinators can manage in admin tools */}
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium">Students</label>
+                              <Input type="number" min={0} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: Number(e.target.value) })} />
+                            </div>
+                            <div>
+                              <label className="text-sm font-medium">Invigilators needed</label>
+                              <Input type="number" min={1} value={form.invigilatorCount} onChange={(e) => setForm({ ...form, invigilatorCount: Number(e.target.value) })} />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-sm font-medium">Type</label>
+                              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Final Exam">Final Exam</SelectItem>
+                                  <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
+                                  <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                  <SelectItem value="Quiz">Quiz</SelectItem>
+                                  <SelectItem value="Final Project">Final Project</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            {/* Status hidden for lecturers; coordinator can manage elsewhere */}
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium">Notes</label>
+                            <Textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => { setIsEditOpen(false); setSelected(null); }}>Cancel</Button>
+                          <Button onClick={submitEdit}>Save Changes</Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                    )}
                   </div>
                 </div>
               </CardContent>
