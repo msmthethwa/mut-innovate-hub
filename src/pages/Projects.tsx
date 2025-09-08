@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,10 +13,15 @@ import {
   TrendingUp
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
 const Projects = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   // Mock data - this will come from Supabase
   const projects = [
@@ -66,6 +71,30 @@ const Projects = () => {
     },
   ];
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          if (userDoc.exists()) {
+            setUser(userDoc.data());
+          } else {
+            console.error("User data not found");
+            setUser(null);
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          setUser(null);
+        }
+      } else {
+        navigate("/login");
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     project.manager.toLowerCase().includes(searchTerm.toLowerCase())
@@ -79,6 +108,14 @@ const Projects = () => {
       default: return "outline";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Loading user data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-muted/20">
@@ -94,7 +131,12 @@ const Projects = () => {
               />
               <div>
                 <h1 className="text-xl font-bold">Projects</h1>
-                <p className="text-sm text-muted-foreground">Manage innovation lab projects</p>
+                {user && (
+                  <p className="text-sm text-muted-foreground">Welcome, {user.firstName || user.name || "User"}</p>
+                )}
+                {!user && (
+                  <p className="text-sm text-muted-foreground">Manage innovation lab projects</p>
+                )}
               </div>
             </div>
             <div className="flex items-center space-x-4">
