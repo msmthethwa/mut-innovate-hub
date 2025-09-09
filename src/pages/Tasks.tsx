@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle,
   Clock,
@@ -15,78 +20,223 @@ import {
   AlertCircle
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, query, where } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+
+interface Task {
+  id: string;
+  title: string;
+  description: string;
+  assignedTo: string;
+  assigneeName: string;
+  projectId: string;
+  projectName: string;
+  status: string;
+  priority: string;
+  progress: number;
+  dueDate: string;
+  createdAt: any;
+  updatedAt: any;
+}
 
 const Tasks = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    assignedTo: "",
+    projectId: "",
+    priority: "Medium",
+    dueDate: "",
+    progress: 0
+  });
 
-  // Mock data - this will come from Supabase
-  const tasks = [
-    { 
-      id: 1, 
-      title: "Database Design Review", 
-      description: "Review and optimize the database schema for the IoT system",
-      assignee: "Sarah Wilson", 
-      project: "Smart Campus IoT System",
-      status: "Pending", 
-      priority: "High",
-      dueDate: "2024-01-15",
-      createdDate: "2024-01-08"
-    },
-    { 
-      id: 2, 
-      title: "API Documentation", 
-      description: "Create comprehensive API documentation for student portal",
-      assignee: "Tom Brown", 
-      project: "Student Portal Enhancement",
-      status: "In Progress", 
-      priority: "Medium",
-      dueDate: "2024-01-18",
-      createdDate: "2024-01-05"
-    },
-    { 
-      id: 3, 
-      title: "Testing Phase", 
-      description: "Conduct comprehensive testing of security system",
-      assignee: "Lisa Davis", 
-      project: "Campus Security System",
-      status: "Completed", 
-      priority: "High",
-      dueDate: "2024-01-12",
-      createdDate: "2024-01-01"
-    },
-    { 
-      id: 4, 
-      title: "UI Component Development", 
-      description: "Develop reusable UI components for the research platform",
-      assignee: "Alex Wang", 
-      project: "AI Research Platform",
-      status: "In Progress", 
-      priority: "Medium",
-      dueDate: "2024-01-20",
-      createdDate: "2024-01-10"
-    },
-    { 
-      id: 5, 
-      title: "Performance Optimization", 
-      description: "Optimize application performance and loading times",
-      assignee: "Mike Johnson", 
-      project: "Student Portal Enhancement",
-      status: "Pending", 
-      priority: "Low",
-      dueDate: "2024-01-25",
-      createdDate: "2024-01-12"
-    },
-  ];
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        try {
+          const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            setUser({ id: currentUser.uid, ...userData });
+            await fetchTasks(currentUser.uid, userData.role);
+            await fetchProjects();
+            await fetchUsers();
+          } else {
+            console.error("User data not found");
+            setUser(null);
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+          setUser(null);
+        }
+      } else {
+        navigate("/login");
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
+  const fetchTasks = async (userId: string, userRole: string) => {
+    try {
+      let tasksQuery;
+      if (userRole === 'coordinator') {
+        // Coordinators can see all tasks
+        tasksQuery = collection(db, "tasks");
+      } else {
+        // Staff and interns only see tasks assigned to them
+        tasksQuery = query(collection(db, "tasks"), where("assignedTo", "==", userId));
+      }
+      
+      const tasksSnapshot = await getDocs(tasksQuery);
+      const tasksData: Task[] = tasksSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as any
+      }));
+      
+      setTasks(tasksData);
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch tasks",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const fetchProjects = async () => {
+    try {
+      const projectsCollection = collection(db, "projects");
+      const projectsSnapshot = await getDocs(projectsCollection);
+      const projectsData = projectsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as any
+      }));
+      setProjects(projectsData);
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const usersCollection = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollection);
+      const usersData = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as any
+      }));
+      setUsers(usersData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTask.title || !newTask.description || !newTask.assignedTo || !newTask.projectId) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const assignedUser = users.find(u => u.id === newTask.assignedTo);
+      const project = projects.find(p => p.id === newTask.projectId);
+      
+      await addDoc(collection(db, "tasks"), {
+        ...newTask,
+        assigneeName: `${assignedUser?.firstName} ${assignedUser?.lastName}`,
+        projectName: project?.name,
+        status: "Pending",
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      
+      toast({
+        title: "Success",
+        description: "Task created successfully",
+      });
+      
+      setShowCreateDialog(false);
+      setNewTask({
+        title: "",
+        description: "",
+        assignedTo: "",
+        projectId: "",
+        priority: "Medium",
+        dueDate: "",
+        progress: 0
+      });
+      
+      await fetchTasks(user.id, user.role);
+    } catch (error) {
+      console.error("Error creating task:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create task",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateProgress = async (taskId: string, progress: number) => {
+    try {
+      const status = progress === 100 ? "Completed" : progress > 0 ? "In Progress" : "Pending";
+      
+      await updateDoc(doc(db, "tasks", taskId), {
+        progress,
+        status,
+        updatedAt: new Date()
+      });
+      
+      toast({
+        title: "Success",
+        description: "Task progress updated",
+      });
+      
+      await fetchTasks(user.id, user.role);
+    } catch (error) {
+      console.error("Error updating task:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update task progress",
+        variant: "destructive",
+      });
+    }
+  };
 
   const filteredTasks = tasks.filter(task => {
     const matchesSearch = task.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.assignee.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         task.project.toLowerCase().includes(searchTerm.toLowerCase());
+                         task.assigneeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         task.projectName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || task.status.toLowerCase().replace(" ", "") === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p>Loading tasks...</p>
+      </div>
+    );
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -136,10 +286,103 @@ const Tasks = () => {
               <Button onClick={() => navigate('/dashboard')}>
                 Back to Dashboard
               </Button>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Task
-              </Button>
+              {user?.role === 'coordinator' && (
+                <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Task
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Create New Task</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="title">Task Title</Label>
+                        <Input
+                          id="title"
+                          value={newTask.title}
+                          onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                          placeholder="Enter task title"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea
+                          id="description"
+                          value={newTask.description}
+                          onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                          placeholder="Enter task description"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="project">Project</Label>
+                        <Select value={newTask.projectId} onValueChange={(value) => setNewTask({ ...newTask, projectId: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select project" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {projects.map((project) => (
+                              <SelectItem key={project.id} value={project.id}>
+                                {project.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="assignee">Assign To</Label>
+                        <Select value={newTask.assignedTo} onValueChange={(value) => setNewTask({ ...newTask, assignedTo: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select assignee" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {users.filter(u => u.role === 'staff' || u.role === 'intern').map((user) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.firstName} {user.lastName} ({user.role})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="priority">Priority</Label>
+                          <Select value={newTask.priority} onValueChange={(value) => setNewTask({ ...newTask, priority: value })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Low">Low</SelectItem>
+                              <SelectItem value="Medium">Medium</SelectItem>
+                              <SelectItem value="High">High</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="dueDate">Due Date</Label>
+                          <Input
+                            id="dueDate"
+                            type="date"
+                            value={newTask.dueDate}
+                            onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCreateTask}>
+                        Create Task
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
           </div>
         </div>
@@ -203,7 +446,7 @@ const Tasks = () => {
                     <User className="h-4 w-4 mr-2" />
                     <div>
                       <p className="font-medium">Assignee</p>
-                      <p>{task.assignee}</p>
+                      <p>{task.assigneeName}</p>
                     </div>
                   </div>
                   
@@ -217,16 +460,85 @@ const Tasks = () => {
 
                   <div className="text-sm text-muted-foreground">
                     <p className="font-medium">Project</p>
-                    <p>{task.project}</p>
+                    <p>{task.projectName}</p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="text-sm text-muted-foreground">
+                    <p className="font-medium">Progress</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 bg-muted rounded-full h-2">
+                        <div 
+                          className="bg-primary h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${task.progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-medium">{task.progress}%</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between pt-4 border-t">
+                  {(user?.role === 'coordinator' || task.assignedTo === user?.id) && (
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" onClick={() => setSelectedTask(task)}>
+                          Update Progress
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[400px]">
+                        <DialogHeader>
+                          <DialogTitle>Update Task Progress</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          <div className="grid gap-2">
+                            <Label>Task: {selectedTask?.title}</Label>
+                            <Label>Current Progress: {selectedTask?.progress}%</Label>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="progress">New Progress</Label>
+                            <Slider
+                              id="progress"
+                              min={0}
+                              max={100}
+                              step={10}
+                              value={[selectedTask?.progress || 0]}
+                              onValueChange={(value) => {
+                                if (selectedTask) {
+                                  setSelectedTask({ ...selectedTask, progress: value[0] });
+                                }
+                              }}
+                              className="w-full"
+                            />
+                            <div className="text-center text-sm text-muted-foreground">
+                              {selectedTask?.progress}%
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline">
+                            Cancel
+                          </Button>
+                          <Button onClick={() => {
+                            if (selectedTask) {
+                              handleUpdateProgress(selectedTask.id, selectedTask.progress);
+                              setSelectedTask(null);
+                            }
+                          }}>
+                            Update Progress
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  <div className="flex gap-2">
                     <Button variant="outline" size="sm">
                       View Details
                     </Button>
-                    <Button size="sm">
-                      Edit Task
-                    </Button>
+                    {user?.role === 'coordinator' && (
+                      <Button size="sm">
+                        Edit Task
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

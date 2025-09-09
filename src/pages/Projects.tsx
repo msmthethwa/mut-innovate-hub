@@ -3,6 +3,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import {
   FolderOpen,
   Plus,
@@ -14,62 +19,41 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+
+interface Project {
+  id: string;
+  name: string;
+  manager: string;
+  status: string;
+  progress: number;
+  description: string;
+  startDate: string;
+  endDate: string;
+  team: string[];
+  createdAt: any;
+  updatedAt: any;
+}
 
 const Projects = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
-  // Mock data - this will come from Supabase
-  const projects = [
-    { 
-      id: 1, 
-      name: "Smart Campus IoT System", 
-      manager: "John Doe", 
-      status: "In Progress", 
-      progress: 75,
-      description: "Implementation of IoT sensors across campus for monitoring",
-      startDate: "2024-01-01",
-      endDate: "2024-06-30",
-      team: ["John Doe", "Sarah Wilson", "Mike Johnson"]
-    },
-    { 
-      id: 2, 
-      name: "Student Portal Enhancement", 
-      manager: "Jane Smith", 
-      status: "Planning", 
-      progress: 25,
-      description: "Upgrading the student information management system",
-      startDate: "2024-02-01",
-      endDate: "2024-08-31",
-      team: ["Jane Smith", "Tom Brown", "Lisa Davis"]
-    },
-    { 
-      id: 3, 
-      name: "AI Research Platform", 
-      manager: "Mike Johnson", 
-      status: "In Progress", 
-      progress: 60,
-      description: "Development of machine learning research environment",
-      startDate: "2023-12-01",
-      endDate: "2024-05-31",
-      team: ["Mike Johnson", "Dr. Smith", "Alex Wang"]
-    },
-    { 
-      id: 4, 
-      name: "Campus Security System", 
-      manager: "Sarah Wilson", 
-      status: "Completed", 
-      progress: 100,
-      description: "Implementation of digital security monitoring",
-      startDate: "2023-09-01",
-      endDate: "2023-12-31",
-      team: ["Sarah Wilson", "David Lee", "Emily Chen"]
-    },
-  ];
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newProject, setNewProject] = useState({
+    name: "",
+    description: "",
+    manager: "",
+    startDate: "",
+    endDate: "",
+    status: "Planning",
+    team: [] as string[]
+  });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -78,6 +62,8 @@ const Projects = () => {
           const userDoc = await getDoc(doc(db, "users", currentUser.uid));
           if (userDoc.exists()) {
             setUser(userDoc.data());
+            await fetchProjects();
+            await fetchUsers();
           } else {
             console.error("User data not found");
             setUser(null);
@@ -94,6 +80,102 @@ const Projects = () => {
 
     return () => unsubscribe();
   }, [navigate]);
+
+  const fetchProjects = async () => {
+    try {
+      const projectsCollection = collection(db, "projects");
+      const projectsSnapshot = await getDocs(projectsCollection);
+      const projectsData: Project[] = projectsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as any
+      }));
+      
+      // Calculate progress based on tasks
+      const updatedProjects = await Promise.all(
+        projectsData.map(async (project) => {
+          const tasksQuery = query(collection(db, "tasks"), where("projectId", "==", project.id));
+          const tasksSnapshot = await getDocs(tasksQuery);
+          const tasks = tasksSnapshot.docs.map(doc => doc.data());
+          
+          if (tasks.length > 0) {
+            const totalProgress = tasks.reduce((sum, task) => sum + (task.progress || 0), 0);
+            const averageProgress = Math.round(totalProgress / tasks.length);
+            return { ...project, progress: averageProgress };
+          }
+          
+          return project;
+        })
+      );
+      
+      setProjects(updatedProjects);
+    } catch (error) {
+      console.error("Error fetching projects:", error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch projects",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const usersCollection = collection(db, "users");
+      const usersSnapshot = await getDocs(usersCollection);
+      const usersData = usersSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data() as any
+      }));
+      setUsers(usersData);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+    }
+  };
+
+  const handleCreateProject = async () => {
+    if (!newProject.name || !newProject.description || !newProject.manager) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "projects"), {
+        ...newProject,
+        progress: 0,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+      
+      toast({
+        title: "Success",
+        description: "Project created successfully",
+      });
+      
+      setShowCreateDialog(false);
+      setNewProject({
+        name: "",
+        description: "",
+        manager: "",
+        startDate: "",
+        endDate: "",
+        status: "Planning",
+        team: []
+      });
+      
+      await fetchProjects();
+    } catch (error) {
+      console.error("Error creating project:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create project",
+        variant: "destructive",
+      });
+    }
+  };
 
   const filteredProjects = projects.filter(project =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -143,10 +225,97 @@ const Projects = () => {
               <Button onClick={() => navigate('/dashboard')}>
                 Back to Dashboard
               </Button>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Project
-              </Button>
+              {user?.role === 'coordinator' && (
+                <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+                  <DialogTrigger asChild>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      New Project
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Create New Project</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="name">Project Name</Label>
+                        <Input
+                          id="name"
+                          value={newProject.name}
+                          onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
+                          placeholder="Enter project name"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="description">Description</Label>
+                        <Textarea
+                          id="description"
+                          value={newProject.description}
+                          onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
+                          placeholder="Enter project description"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="manager">Manager</Label>
+                        <Select value={newProject.manager} onValueChange={(value) => setNewProject({ ...newProject, manager: value })}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select manager" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {users.filter(u => u.role === 'coordinator').map((user) => (
+                              <SelectItem key={user.id} value={`${user.firstName} ${user.lastName}`}>
+                                {user.firstName} {user.lastName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="startDate">Start Date</Label>
+                          <Input
+                            id="startDate"
+                            type="date"
+                            value={newProject.startDate}
+                            onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="endDate">End Date</Label>
+                          <Input
+                            id="endDate"
+                            type="date"
+                            value={newProject.endDate}
+                            onChange={(e) => setNewProject({ ...newProject, endDate: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="status">Status</Label>
+                        <Select value={newProject.status} onValueChange={(value) => setNewProject({ ...newProject, status: value })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Planning">Planning</SelectItem>
+                            <SelectItem value="In Progress">In Progress</SelectItem>
+                            <SelectItem value="Completed">Completed</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCreateProject}>
+                        Create Project
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              )}
             </div>
           </div>
         </div>

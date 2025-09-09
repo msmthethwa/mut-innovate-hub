@@ -9,6 +9,29 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator'
       );
     }
+    match /projects/{projectId} {
+      // Anyone can read projects, only coordinators can write
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator';
+    }
+    match /tasks/{taskId} {
+      // Coordinators can read/write all tasks
+      // Users can read tasks assigned to them and update their own task progress
+      allow read: if request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator' ||
+        resource.data.assignedTo == request.auth.uid
+      );
+      allow create: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator';
+      allow update: if request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator' ||
+        (resource.data.assignedTo == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress', 'status', 'updatedAt']))
+      );
+      allow delete: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'coordinator';
+    }
     match /invigilations/{document=**} {
       allow read, write: if request.auth != null;
     }
