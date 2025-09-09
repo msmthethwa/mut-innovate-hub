@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
+
 import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle,
@@ -202,19 +202,27 @@ const Tasks = () => {
 
   const handleUpdateProgress = async (taskId: string, progress: number) => {
     try {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+
       const status = progress === 100 ? "Completed" : progress > 0 ? "In Progress" : "Pending";
-      
+
       await updateDoc(doc(db, "tasks", taskId), {
         progress,
         status,
         updatedAt: new Date()
       });
-      
+
+      // Update project progress only for coordinators
+      if (user?.role === 'coordinator') {
+        await updateProjectProgress(task.projectId);
+      }
+
       toast({
         title: "Success",
         description: "Task progress updated",
       });
-      
+
       await fetchTasks(user.id, user.role);
     } catch (error) {
       console.error("Error updating task:", error);
@@ -223,6 +231,70 @@ const Tasks = () => {
         description: "Failed to update task progress",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleUpdateStatus = async (taskId: string, newStatus: string) => {
+    try {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+
+      let progress = task.progress;
+      if (newStatus === 'In Progress' && progress === 0) {
+        progress = 10;
+      } else if (newStatus === 'Completed') {
+        progress = 100;
+      }
+
+      await updateDoc(doc(db, "tasks", taskId), {
+        status: newStatus,
+        progress,
+        updatedAt: new Date()
+      });
+
+      // Update project progress only for coordinators
+      if (user?.role === 'coordinator') {
+        await updateProjectProgress(task.projectId);
+      }
+
+      toast({
+        title: "Success",
+        description: `Task marked as ${newStatus}`,
+      });
+
+      await fetchTasks(user.id, user.role);
+
+      // Update selectedTask
+      if (selectedTask && selectedTask.id === taskId) {
+        setSelectedTask({ ...selectedTask, status: newStatus, progress });
+      }
+    } catch (error) {
+      console.error("Error updating task status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update task status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const updateProjectProgress = async (projectId: string) => {
+    try {
+      const tasksQuery = query(collection(db, "tasks"), where("projectId", "==", projectId));
+      const tasksSnapshot = await getDocs(tasksQuery);
+      const projectTasks = tasksSnapshot.docs.map(doc => doc.data() as Task);
+
+      if (projectTasks.length === 0) return;
+
+      const totalProgress = projectTasks.reduce((sum, task) => sum + task.progress, 0);
+      const averageProgress = Math.round(totalProgress / projectTasks.length);
+
+      await updateDoc(doc(db, "projects", projectId), {
+        progress: averageProgress,
+        updatedAt: new Date()
+      });
+    } catch (error) {
+      console.error("Error updating project progress:", error);
     }
   };
 
@@ -335,6 +407,9 @@ const Tasks = () => {
                   <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                       <DialogTitle>Create New Task</DialogTitle>
+                      <DialogDescription>
+                        Create a new task by filling out the form below.
+                      </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid gap-2">
@@ -529,7 +604,7 @@ const Tasks = () => {
                           View Details
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="sm:max-w-[650px]">
+                      <DialogContent className="sm:max-w-[900px]">
                         <DialogHeader>
                           <DialogTitle>Task Details</DialogTitle>
                         </DialogHeader>
@@ -574,19 +649,13 @@ const Tasks = () => {
                             </div>
                             {(user?.role === 'coordinator' || selectedTask?.assignedTo === user?.id) && (
                               <div className="mt-2">
-                                <Label htmlFor="progress-slider">Update Progress</Label>
-                                <div className="flex items-center gap-3 mt-2">
-                                  <Slider id="progress-slider" min={0} max={100} step={5} value={[progressDraft]} onValueChange={(value) => setProgressDraft(value[0])} className="flex-1" />
-                                  <span className="text-xs font-medium w-10 text-right">{progressDraft}%</span>
-                                </div>
-                                <div className="flex justify-end mt-2">
-                                  <Button size="sm" onClick={async () => {
-                                    if (selectedTask) {
-                                      await handleUpdateProgress(selectedTask.id, progressDraft);
-                                      setSelectedTask({ ...selectedTask, progress: progressDraft, status: progressDraft === 100 ? 'Completed' : progressDraft > 0 ? 'In Progress' : 'Pending' });
-                                    }
-                                  }}>Save Progress</Button>
-                                </div>
+                                {selectedTask?.assignedTo === user?.id && selectedTask?.status === 'Pending' && (
+                                  <Button size="sm" onClick={() => handleUpdateStatus(selectedTask.id, 'In Progress')} className="mr-2">Start Task</Button>
+                                )}
+                                {selectedTask?.assignedTo === user?.id && selectedTask?.status === 'In Progress' && (
+                                  <Button size="sm" onClick={() => handleUpdateStatus(selectedTask.id, 'Completed')} className="mr-2">Mark as Done</Button>
+                                )}
+
                               </div>
                             )}
                           </div>
