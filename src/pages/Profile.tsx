@@ -8,10 +8,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Camera, Mail, Phone, MapPin, Calendar, Award, BookOpen, Plus, Edit, Trash2 } from "lucide-react";
+import { ArrowLeft, Camera, Mail, Phone, MapPin, Calendar, Award, BookOpen, Plus, Edit, Trash2, Clock, CheckCircle, User, FileText, MessageSquare, Settings, Activity, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 const Profile = () => {
@@ -30,6 +30,8 @@ const Profile = () => {
     expiryDate: '',
     description: ''
   });
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   // New state for profile picture file input
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -161,6 +163,11 @@ const Profile = () => {
 
       setFeedback({ type: 'success', message: 'Profile updated successfully!' });
       setShowFeedback(true);
+      
+      // Refresh recent activity after profile update
+      if (user?.id) {
+        fetchRecentActivity(user.id);
+      }
     } catch (error) {
       console.error('Error updating profile:', error);
       setFeedback({ type: 'error', message: 'Error updating profile. Please try again.' });
@@ -199,6 +206,11 @@ const Profile = () => {
 
       setFeedback({ type: 'success', message: 'Professional details updated successfully!' });
       setShowFeedback(true);
+      
+      // Refresh recent activity after profile update
+      if (user?.id) {
+        fetchRecentActivity(user.id);
+      }
     } catch (error) {
       console.error('Error updating professional details:', error);
       setFeedback({ type: 'error', message: 'Error updating professional details. Please try again.' });
@@ -299,6 +311,142 @@ const Profile = () => {
     }
   }, [user]);
 
+  // Fetch recent activity for the logged-in user
+  const fetchRecentActivity = async (userId: string) => {
+    setActivityLoading(true);
+    try {
+      const activities: any[] = [];
+
+      // Fetch recent tasks assigned to user
+      const tasksQuery = query(
+        collection(db, "tasks"),
+        where("assignedTo", "==", userId),
+        orderBy("updatedAt", "desc"),
+        limit(5)
+      );
+      const tasksSnapshot = await getDocs(tasksQuery);
+      tasksSnapshot.docs.forEach(doc => {
+        const task = doc.data();
+        activities.push({
+          id: doc.id,
+          type: 'task',
+          action: task.status === 'Completed' ? 'completed' : task.status === 'In Progress' ? 'started' : 'assigned',
+          title: `Task: ${task.title}`,
+          description: task.status === 'Completed' ? `Completed task "${task.title}"` : 
+                      task.status === 'In Progress' ? `Started working on "${task.title}"` : 
+                      `Assigned to task "${task.title}"`,
+          timestamp: task.updatedAt || task.createdAt,
+          projectName: task.projectName,
+          status: task.status
+        });
+      });
+
+      // Fetch recent projects where user is involved
+      const projectsQuery = query(
+        collection(db, "projects"),
+        where("team", "array-contains", userId),
+        orderBy("updatedAt", "desc"),
+        limit(3)
+      );
+      const projectsSnapshot = await getDocs(projectsQuery);
+      projectsSnapshot.docs.forEach(doc => {
+        const project = doc.data();
+        activities.push({
+          id: doc.id,
+          type: 'project',
+          action: 'updated',
+          title: `Project: ${project.name}`,
+          description: `Project "${project.name}" was updated`,
+          timestamp: project.updatedAt || project.createdAt,
+          projectName: project.name,
+          status: project.status
+        });
+      });
+
+      // Add profile update activity if user was recently updated
+      if (user?.updatedAt) {
+        activities.push({
+          id: 'profile-update',
+          type: 'profile',
+          action: 'updated',
+          title: 'Profile Updated',
+          description: 'Updated personal information',
+          timestamp: user.updatedAt,
+          status: 'completed'
+        });
+      }
+
+      // Sort all activities by timestamp and take the most recent 10
+      const sortedActivities = activities
+        .sort((a, b) => {
+          const aTime = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+          const bTime = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+          return bTime.getTime() - aTime.getTime();
+        })
+        .slice(0, 10);
+
+      setRecentActivity(sortedActivities);
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  // Load recent activity when user data is available
+  useEffect(() => {
+    if (user?.id) {
+      fetchRecentActivity(user.id);
+    }
+  }, [user?.id]);
+
+  // Helper function to get activity icon
+  const getActivityIcon = (type: string, action: string) => {
+    switch (type) {
+      case 'task':
+        return action === 'completed' ? <CheckCircle className="h-4 w-4" /> : 
+               action === 'started' ? <Clock className="h-4 w-4" /> : 
+               <FileText className="h-4 w-4" />;
+      case 'project':
+        return <Settings className="h-4 w-4" />;
+      case 'profile':
+        return <User className="h-4 w-4" />;
+      default:
+        return <Activity className="h-4 w-4" />;
+    }
+  };
+
+  // Helper function to get activity color
+  const getActivityColor = (type: string, action: string) => {
+    switch (type) {
+      case 'task':
+        return action === 'completed' ? 'bg-green-500' : 
+               action === 'started' ? 'bg-blue-500' : 
+               'bg-mut-primary';
+      case 'project':
+        return 'bg-mut-secondary';
+      case 'profile':
+        return 'bg-purple-500';
+      default:
+        return 'bg-gray-500';
+    }
+  };
+
+  // Helper function to format time ago
+  const getTimeAgo = (timestamp: any) => {
+    if (!timestamp) return 'Unknown time';
+    
+    const now = new Date();
+    const time = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const diffInSeconds = Math.floor((now.getTime() - time.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)} days ago`;
+    return time.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -368,20 +516,20 @@ const Profile = () => {
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-3">
                   <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{user?.email || "user@mut.ac.za"}</span>
+                  <span className="text-sm">{user?.email || "No email provided"}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Phone className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{user?.phone || "+27 31 907 7000"}</span>
+                  <span className="text-sm">{user?.phone || "No phone provided"}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{user?.department || "Innovation Lab, MUT"}</span>
+                  <span className="text-sm">{user?.department || "No department specified"}</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <Calendar className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm">
-                    Joined {user?.createdAt ? new Date(user.createdAt.toDate()).toLocaleDateString('en-US', { year: 'numeric', month: 'short' }) : "Jan 2023"}
+                    {user?.createdAt ? `Joined ${new Date(user.createdAt.toDate()).toLocaleDateString('en-US', { year: 'numeric', month: 'short' })}` : "Join date not available"}
                   </span>
                 </div>
               </CardContent>
@@ -398,14 +546,7 @@ const Profile = () => {
                       <Badge key={index} variant="secondary">{skill}</Badge>
                     ))
                   ) : (
-                    <>
-                      <Badge variant="secondary">React</Badge>
-                      <Badge variant="secondary">TypeScript</Badge>
-                      <Badge variant="secondary">Firebase</Badge>
-                      <Badge variant="secondary">Project Management</Badge>
-                      <Badge variant="secondary">UI/UX Design</Badge>
-                      <Badge variant="secondary">Database Design</Badge>
-                    </>
+                    <p className="text-sm text-muted-foreground">No skills added yet</p>
                   )}
                 </div>
               </CardContent>
@@ -431,27 +572,48 @@ const Profile = () => {
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="firstName">First Name</Label>
-                        <Input id="firstName" defaultValue={user?.firstName || user?.name || "John"} />
+                        <Input 
+                          id="firstName" 
+                          defaultValue={user?.firstName || user?.name || ""} 
+                          placeholder="Enter your first name"
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="lastName">Last Name</Label>
-                        <Input id="lastName" defaultValue={user?.lastName || "Smith"} />
+                        <Input 
+                          id="lastName" 
+                          defaultValue={user?.lastName || ""} 
+                          placeholder="Enter your last name"
+                        />
                       </div>
                     </div>
 
                     <div className="space-y-2">
                       <Label htmlFor="email">Email Address</Label>
-                      <Input id="email" type="email" defaultValue={user?.email || "john.smith@mut.ac.za"} />
+                      <Input 
+                        id="email" 
+                        type="email" 
+                        defaultValue={user?.email || ""} 
+                        placeholder="Enter your email address"
+                      />
                     </div>
 
                     <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="phone">Phone Number</Label>
-                        <Input id="phone" defaultValue={user?.phone || "+27 31 907 7000"} />
+                        <Input 
+                          id="phone" 
+                          defaultValue={user?.phone || ""} 
+                          placeholder="Enter your phone number"
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="department">Department</Label>
-                        <Input id="department" defaultValue={user?.department || "Innovation Lab"} />
+                        <Input 
+                          id="department" 
+                          defaultValue={user?.department || ""} 
+                          placeholder="Enter your department"
+                        />
                       </div>
                     </div>
 
@@ -460,7 +622,8 @@ const Profile = () => {
                       <Textarea
                         id="bio"
                         rows={4}
-                        defaultValue={user?.bio || "Passionate software developer with expertise in web technologies and project management. Dedicated to innovation and helping students succeed."}
+                        defaultValue={user?.bio || ""}
+                        placeholder="Tell us about yourself, your interests, and professional background..."
                       />
                     </div>
 
@@ -470,7 +633,7 @@ const Profile = () => {
                         id="skills"
                         rows={3}
                         placeholder="Enter your skills separated by commas (e.g., React, TypeScript, Firebase, Project Management)"
-                        defaultValue={user?.skills ? user.skills.join(', ') : "React, TypeScript, Firebase, Project Management, UI/UX Design, Database Design"}
+                        defaultValue={user?.skills ? user.skills.join(', ') : ""}
                       />
                     </div>
 
@@ -492,22 +655,38 @@ const Profile = () => {
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="position">Position</Label>
-                          <Input id="position" defaultValue={user?.position || "Senior Lab Staff"} />
+                          <Input 
+                            id="position" 
+                            defaultValue={user?.position || ""} 
+                            placeholder="Enter your position/title"
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="employeeId">Employee ID</Label>
-                          <Input id="employeeId" defaultValue={user?.employeeId || "MUT2023001"} />
+                          <Input 
+                            id="employeeId" 
+                            defaultValue={user?.employeeId || ""} 
+                            placeholder="Enter your employee ID"
+                          />
                         </div>
                       </div>
 
                       <div className="grid md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="startDate">Start Date</Label>
-                          <Input id="startDate" type="date" defaultValue={user?.startDate || "2023-01-15"} />
+                          <Input 
+                            id="startDate" 
+                            type="date" 
+                            defaultValue={user?.startDate || ""} 
+                          />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="supervisor">Supervisor</Label>
-                          <Input id="supervisor" defaultValue={user?.supervisor || "Dr. Sarah Johnson"} />
+                          <Input 
+                            id="supervisor" 
+                            defaultValue={user?.supervisor || ""} 
+                            placeholder="Enter your supervisor's name"
+                          />
                         </div>
                       </div>
 
@@ -516,7 +695,8 @@ const Profile = () => {
                         <Textarea
                           id="specializations"
                           rows={3}
-                          defaultValue={user?.specializations || "Web Development, Mobile Applications, Database Management, Student Mentoring, Project Coordination"}
+                          defaultValue={user?.specializations || ""}
+                          placeholder="Enter your areas of specialization (e.g., Web Development, Mobile Applications, Database Management)"
                         />
                       </div>
 
@@ -673,46 +853,64 @@ const Profile = () => {
               <TabsContent value="activity">
                 <Card>
                   <CardHeader>
-                    <CardTitle>Recent Activity</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="flex items-center gap-2">
+                        <Activity className="h-5 w-5" />
+                        Recent Activity
+                      </CardTitle>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => user?.id && fetchRecentActivity(user.id)}
+                        disabled={activityLoading}
+                      >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${activityLoading ? 'animate-spin' : ''}`} />
+                        Refresh
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-6">
-                      <div className="flex items-start gap-4">
-                        <div className="w-2 h-2 bg-mut-primary rounded-full mt-2"></div>
-                        <div>
-                          <p className="font-medium">Completed task: Update project documentation</p>
-                          <p className="text-sm text-muted-foreground">2 hours ago</p>
+                    {activityLoading ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-mut-primary"></div>
+                          <span className="text-sm text-muted-foreground">Loading activity...</span>
                         </div>
                       </div>
-                      <div className="flex items-start gap-4">
-                        <div className="w-2 h-2 bg-mut-secondary rounded-full mt-2"></div>
-                        <div>
-                          <p className="font-medium">Assigned to invigilation duty</p>
-                          <p className="text-sm text-muted-foreground">1 day ago</p>
-                        </div>
+                    ) : recentActivity.length > 0 ? (
+                      <div className="space-y-4">
+                        {recentActivity.map((activity, index) => (
+                          <div key={activity.id || index} className="flex items-start gap-4 group">
+                            <div className={`w-2 h-2 ${getActivityColor(activity.type, activity.action)} rounded-full mt-2 flex-shrink-0`}></div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start gap-2">
+                                <div className="text-muted-foreground mt-0.5">
+                                  {getActivityIcon(activity.type, activity.action)}
+                                </div>
+                                <div className="flex-1">
+                                  <p className="font-medium text-sm">{activity.title}</p>
+                                  <p className="text-sm text-muted-foreground mt-1">{activity.description}</p>
+                                  {activity.projectName && (
+                                    <Badge variant="outline" className="text-xs mt-1">
+                                      {activity.projectName}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-2">{getTimeAgo(activity.timestamp)}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="flex items-start gap-4">
-                        <div className="w-2 h-2 bg-mut-primary rounded-full mt-2"></div>
-                        <div>
-                          <p className="font-medium">Updated profile information</p>
-                          <p className="text-sm text-muted-foreground">3 days ago</p>
-                        </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-muted-foreground mb-2">No recent activity</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Your recent tasks, projects, and profile updates will appear here.
+                        </p>
                       </div>
-                      <div className="flex items-start gap-4">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
-                        <div>
-                          <p className="font-medium">Project milestone achieved: Mobile App Phase 1</p>
-                          <p className="text-sm text-muted-foreground">1 week ago</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-4">
-                        <div className="w-2 h-2 bg-mut-secondary rounded-full mt-2"></div>
-                        <div>
-                          <p className="font-medium">Mentored new intern orientation</p>
-                          <p className="text-sm text-muted-foreground">2 weeks ago</p>
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
