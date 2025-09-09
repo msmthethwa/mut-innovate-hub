@@ -55,6 +55,7 @@ const Register = () => {
           phone: formData.phone,
           department: formData.department,
           reason: formData.reason,
+          status: "pending",
           createdAt: new Date()
         });
       }

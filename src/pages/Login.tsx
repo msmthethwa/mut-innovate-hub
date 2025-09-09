@@ -30,20 +30,40 @@ const Login = () => {
       const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
       if (userDoc.exists()) {
         const userData = userDoc.data();
-        localStorage.setItem("userRole", userData.role);
+        
+        // Check user status
+        const status = userData.status || "pending";
+        
+        if (status === "pending") {
+          toast.error("Your access request is still pending approval. Please wait for coordinator review.");
+          setError("Your access request is still pending approval. Please wait for coordinator review.");
+          setLoading(false);
+          return;
+        } else if (status === "rejected") {
+          const reason = userData.rejectionReason || "No reason provided";
+          toast.error(`Your access request was rejected. Reason: ${reason}`);
+          setError(`Your access request was rejected. Reason: ${reason}`);
+          setLoading(false);
+          return;
+        } else if (status === "approved") {
+          localStorage.setItem("userRole", userData.role);
+          toast.success("Login successful! Welcome back.");
+          console.log("User logged in:", userCredential.user);
+
+          // Redirect to dashboard after successful login
+          setTimeout(() => {
+            navigate("/dashboard");
+          }, 1000);
+        } else {
+          toast.error("Unknown account status. Please contact administrator.");
+          setLoading(false);
+          return;
+        }
       } else {
         toast.error("User data not found. Please contact administrator.");
         setLoading(false);
         return;
       }
-
-      toast.success("Login successful! Welcome back.");
-      console.log("User logged in:", userCredential.user);
-
-      // Redirect to dashboard after successful login
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 1000);
 
     } catch (err: any) {
       const errorMessage = err.message || "Failed to log in.";

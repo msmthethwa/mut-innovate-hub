@@ -156,6 +156,15 @@ const Dashboard = () => {
           },
           quickActions: [
             {
+              title: "Access Management",
+              description: "Review and approve user requests",
+              route: "/access-management",
+              icon: Users,
+              color: "text-orange-600",
+              count: 4,
+              subText: "pending requests"
+            },
+            {
               title: "Projects",
               description: "Manage innovation lab projects",
               route: "/projects",
