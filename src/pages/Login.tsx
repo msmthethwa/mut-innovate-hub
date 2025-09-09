@@ -33,6 +33,7 @@ const Login = () => {
         
         // Check user status
         const status = userData.status || "pending";
+        const isActive = userData.isActive !== false; // Default to true if not set
         
         if (status === "pending") {
           toast.error("Your access request is still pending approval. Please wait for coordinator review.");
@@ -46,6 +47,14 @@ const Login = () => {
           setLoading(false);
           return;
         } else if (status === "approved") {
+          // Check if user is active
+          if (!isActive) {
+            toast.error("Your account has been deactivated. Please contact the administrator for assistance.");
+            setError("Your account has been deactivated. Please contact the administrator for assistance.");
+            setLoading(false);
+            return;
+          }
+          
           localStorage.setItem("userRole", userData.role);
           toast.success("Login successful! Welcome back.");
           console.log("User logged in:", userCredential.user);

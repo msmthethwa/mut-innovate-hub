@@ -243,10 +243,17 @@ const Tasks = () => {
     try {
       const usersCollection = collection(db, "users");
       const usersSnapshot = await getDocs(usersCollection);
-      const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data() as any
-      }));
+      const usersData = usersSnapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data() as any
+        }))
+        .filter(user => {
+          // Only include users who are approved and active
+          const status = user.status || "pending";
+          const isActive = user.isActive !== false; // Default to true if not set
+          return status === "approved" && isActive;
+        });
       setUsers(usersData);
     } catch (error) {
       console.error("Error fetching users:", error);

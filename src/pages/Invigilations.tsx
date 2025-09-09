@@ -254,17 +254,24 @@ const Invigilations = () => {
           if (key && !map[key]) map[key] = name;
           if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
         });
-        // Load users with staff/intern role as fallback
+        // Load users with staff/intern role as fallback (only active and approved users)
         const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
         usersSnap.docs.forEach((d) => {
           const data = d.data() as any;
           const key = d.id;
-          const firstName = data.firstName || "";
-          const lastName = data.lastName || "";
-          const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.displayName || data.email || key);
-          const email = data.email || "";
-          if (key && !map[key]) map[key] = name;
-          if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+          
+          // Only include users who are approved and active
+          const status = data.status || "pending";
+          const isActive = data.isActive !== false; // Default to true if not set
+          
+          if (status === "approved" && isActive) {
+            const firstName = data.firstName || "";
+            const lastName = data.lastName || "";
+            const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.displayName || data.email || key);
+            const email = data.email || "";
+            if (key && !map[key]) map[key] = name;
+            if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+          }
         });
         setIdToName(map);
       } catch (e) {
@@ -274,8 +281,23 @@ const Invigilations = () => {
   }, []);
 
   async function loadStaff() {
+    // First try to load from staff collection
     const snap = await getDocs(query(collection(db, "staff"), where("active", "==", true)));
-    const list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    let list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+    
+    // If no staff found, fallback to users collection with active and approved users
+    if (list.length === 0) {
+      const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
+      list = usersSnap.docs
+        .map((d) => ({ id: d.id, userId: d.id, ...(d.data() as any) }))
+        .filter(user => {
+          // Only include users who are approved and active
+          const status = user.status || "pending";
+          const isActive = user.isActive !== false; // Default to true if not set
+          return status === "approved" && isActive;
+        });
+    }
+    
     setStaffPool(list);
     return list as Staff[];
   }
@@ -301,9 +323,16 @@ const Invigilations = () => {
     try {
       let freshPool = await loadStaff();
       if (!freshPool || freshPool.length === 0) {
-        // Fallback: derive pool from users collection by role
+        // Fallback: derive pool from users collection by role (only active and approved users)
         const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
-        freshPool = usersSnap.docs.map((d) => ({ id: d.id, userId: d.id, ...(d.data() as any) })) as Staff[];
+        freshPool = usersSnap.docs
+          .map((d) => ({ id: d.id, userId: d.id, ...(d.data() as any) }))
+          .filter(user => {
+            // Only include users who are approved and active
+            const status = user.status || "pending";
+            const isActive = user.isActive !== false; // Default to true if not set
+            return status === "approved" && isActive;
+          }) as Staff[];
       }
       const needed = inv.invigilatorCount || 1;
       const available = freshPool.filter((s) => (s as any).available !== false);
