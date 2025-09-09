@@ -798,7 +798,7 @@ const Projects = () => {
                           <div className="grid gap-2">
                             <Label>Team Members</Label>
                             <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
-                              {users.map((user) => (
+                              {users.filter(u => u.role !== 'lecturer' && u.role !== 'coordinator').map((user) => (
                                 <div key={user.id} className="flex items-center space-x-2">
                                   <Checkbox
                                     id={`team-${user.id}`}
@@ -1677,7 +1677,7 @@ const Projects = () => {
                     <div className="grid gap-2">
                       <Label>Team Members</Label>
                       <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2">
-                        {users.map((user) => (
+                        {users.filter(u => u.role !== 'lecturer' && u.role !== 'coordinator').map((user) => (
                           <div key={user.id} className="flex items-center space-x-2">
                             <Checkbox
                               id={`edit-team-${user.id}`}

@@ -768,44 +768,44 @@ const Invigilations = () => {
                             Assign
                           </Button>
                         </DialogTrigger>
-                      <DialogContent className="max-w-2xl p-6 bg-white rounded-lg shadow-lg">
-                        <DialogHeader>
-                          <DialogTitle className="text-2xl font-semibold mb-2">Assign Invigilators</DialogTitle>
-                          <DialogDescription className="text-sm text-gray-600 mb-6">Randomize or manually adjust assignments. Manage availability as needed.</DialogDescription>
+                      <DialogContent className="max-w-sm md:max-w-2xl lg:max-w-4xl max-h-[80vh] p-4 md:p-6 bg-white rounded-lg shadow-lg flex flex-col">
+                        <DialogHeader className="flex-shrink-0 pb-4">
+                          <DialogTitle className="text-lg md:text-2xl font-semibold mb-2">Assign Invigilators</DialogTitle>
+                          <DialogDescription className="text-sm text-gray-600 mb-4 md:mb-6">Randomize or manually adjust assignments. Manage availability as needed.</DialogDescription>
                         </DialogHeader>
-                        <div className="space-y-6">
-                          <div className="flex items-center justify-between border-b pb-4">
+                        <div className="flex-1 overflow-y-auto space-y-4 md:space-y-6 pr-1">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 gap-3">
                             <div>
                               <p className="text-sm font-medium text-gray-700">Needed: {invigilation.invigilatorCount || 1}</p>
                               <p className="text-sm font-medium text-gray-700">Assigned: {assignedIds.length}</p>
                             </div>
-                            <div className="flex gap-3">
-                              <Button variant="outline" onClick={() => handleAutoAssign(invigilation)} disabled={assignWorking} className="px-4 py-2 text-sm font-medium rounded-md hover:bg-gray-100 transition">
+                            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                              <Button variant="outline" onClick={() => handleAutoAssign(invigilation)} disabled={assignWorking} className="px-3 md:px-4 py-2 text-sm font-medium rounded-md hover:bg-gray-100 transition w-full sm:w-auto">
                                 Auto-assign
                               </Button>
-                              <Badge variant={getStatusColor(assignStatus)} className="text-base font-semibold px-3 py-1 rounded-full">
+                              <Badge variant={getStatusColor(assignStatus)} className="text-sm md:text-base font-semibold px-3 py-1 rounded-full self-center sm:self-auto">
                                 {assignStatus}
                               </Badge>
                             </div>
                           </div>
-                          <div className="grid grid-cols-1 gap-6">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
                             {staffPool.length > 0 && (
-                              <div>
+                              <div className="lg:col-span-1">
                                 <p className="text-sm font-semibold mb-3 text-gray-800">Available Staff</p>
-                                <div className="space-y-3 max-h-64 overflow-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                <div className="space-y-3 max-h-48 md:max-h-64 lg:max-h-96 overflow-auto border border-gray-200 rounded-lg p-3 md:p-4 bg-gray-50">
                                   {staffPool.map((s) => (
-                                    <div key={s.id} className="flex items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition">
-                                      <div>
-                                        <p className="text-sm font-medium text-gray-900">{s.name || s.email || s.id}</p>
+                                    <div key={s.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 truncate">{s.name || s.email || s.id}</p>
                                         <p className={`text-xs ${s.available === false ? "text-red-500" : "text-green-600"}`}>
                                           {s.available === false ? "Unavailable" : "Available"}
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-3">
-                                        <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.includes(s.id) ? prev : [...prev, s.id])} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+                                        <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.includes(s.id) ? prev : [...prev, s.id])} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
                                           Add
                                         </Button>
-                                        <Button size="sm" variant="ghost" onClick={() => toggleAvailability(s.id, !(s.available !== false))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                        <Button size="sm" variant="ghost" onClick={() => toggleAvailability(s.id, !(s.available !== false))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
                                           {(s.available !== false) ? "Mark Unavailable" : "Mark Available"}
                                         </Button>
                                       </div>
@@ -814,16 +814,16 @@ const Invigilations = () => {
                                 </div>
                               </div>
                             )}
-                            <div>
+                            <div className="lg:col-span-1">
                               <p className="text-sm font-semibold mb-3 text-gray-800">Assigned</p>
-                              <div className="space-y-3 max-h-64 overflow-auto border border-gray-200 rounded-lg p-4 bg-gray-50">
+                              <div className="space-y-3 max-h-48 md:max-h-64 lg:max-h-96 overflow-auto border border-gray-200 rounded-lg p-3 md:p-4 bg-gray-50">
                                 {assignedIds.map((id) => (
-                                  <div key={id} className="flex items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition">
-                                    <div>
-                                      <p className="text-sm font-semibold text-gray-900">{idToName[id] || id}</p>
-                                      {idToEmail[id] && <p className="text-xs text-gray-500">{idToEmail[id]}</p>}
+                                  <div key={id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{idToName[id] || id}</p>
+                                      {idToEmail[id] && <p className="text-xs text-gray-500 truncate">{idToEmail[id]}</p>}
                                     </div>
-                                    <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.filter((x) => x !== id))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition">
+                                    <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.filter((x) => x !== id))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
                                       Remove
                                     </Button>
                                   </div>
@@ -835,21 +835,23 @@ const Invigilations = () => {
                           {selected?.assignmentHistory && selected.assignmentHistory.length > 0 && (
                             <div>
                               <p className="text-sm font-semibold mb-2 text-gray-800">Assignment History</p>
-                              <div className="text-xs text-gray-500 space-y-2 max-h-32 overflow-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
+                              <div className="text-xs text-gray-500 space-y-2 max-h-32 md:max-h-48 overflow-auto border border-gray-200 rounded-lg p-3 bg-gray-50">
                                 {selected.assignmentHistory.map((h, idx) => (
                                   <div key={idx} className="border-b border-gray-200 pb-1 last:border-0">
-                                    Action: <span className="capitalize font-medium">{h.action}</span> • By: {idToName[h.by] || h.by} • Assigned: {(h.assigned || []).length}
+                                    <div className="text-xs">
+                                      <span className="capitalize font-medium">{h.action}</span> • By: {idToName[h.by] || h.by} • Assigned: {(h.assigned || []).length}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
                             </div>
                           )}
                         </div>
-                        <DialogFooter className="pt-6 flex justify-end space-x-4">
-                          <Button variant="outline" onClick={() => { setIsAssignOpen(false); setSelected(null); }} className="px-5 py-2 rounded-md font-medium hover:bg-gray-100 transition">
+                        <DialogFooter className="flex-shrink-0 pt-4 md:pt-6 flex flex-col sm:flex-row justify-end gap-3 sm:space-x-4">
+                          <Button variant="outline" onClick={() => { setIsAssignOpen(false); setSelected(null); }} className="px-4 md:px-5 py-2 rounded-md font-medium hover:bg-gray-100 transition w-full sm:w-auto">
                             Cancel
                           </Button>
-                          <Button onClick={saveAssignment} className="px-5 py-2 rounded-md font-semibold bg-primary text-white hover:bg-primary/90 transition">
+                          <Button onClick={saveAssignment} className="px-4 md:px-5 py-2 rounded-md font-semibold bg-primary text-white hover:bg-primary/90 transition w-full sm:w-auto">
                             Save
                           </Button>
                         </DialogFooter>

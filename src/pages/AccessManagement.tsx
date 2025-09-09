@@ -502,7 +502,7 @@ const AccessManagement = () => {
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
                   <SelectItem value="coordinator">Coordinator</SelectItem>
-                  <SelectItem value="lab-staff">Lab Staff</SelectItem>
+                  <SelectItem value="staff">Staff</SelectItem>
                   <SelectItem value="student">Student</SelectItem>
                 </SelectContent>
               </Select>

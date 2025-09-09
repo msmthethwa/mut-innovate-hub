@@ -28,9 +28,9 @@ const Dashboard = () => {
   // Role-specific dashboard content
   const getDashboardContent = () => {
     switch (userRole) {
-      case "lab-staff":
+      case "staff":
         return {
-          title: "Lab Staff Dashboard",
+          title: "Staff Dashboard",
           stats: {
             assignedTasks: 8,
             completedTasks: 15,
