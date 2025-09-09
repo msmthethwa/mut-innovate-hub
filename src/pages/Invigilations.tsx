@@ -15,7 +15,8 @@ import {
   User,
   MapPin,
   BookOpen,
-  Users
+  Users,
+  Bell
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { db, auth } from "@/lib/firebase";
@@ -33,7 +34,7 @@ type Invigilation = {
   userId: string;
   studentCount: number;
   invigilatorCount?: number;
-  status: "Confirmed" | "Pending" | "Requested";
+  status: "Confirmed" | "Pending" | "Requested" | "Assigned";
   type: "Final Exam" | "Mid-term Exam" | "Practical Test" | "Quiz" | "Final Project" | string;
   notes?: string;
   assignedInvigilators?: string[];
@@ -65,12 +66,14 @@ const Invigilations = () => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
+  const [isAssignedTasksOpen, setIsAssignedTasksOpen] = useState(false);
   const [selected, setSelected] = useState<Invigilation | null>(null);
   const [form, setForm] = useState<Omit<Invigilation, "id">>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [userRole, setUserRole] = useState<string>("");
   const [userName, setUserName] = useState<string>("");
+  const [userAssignedTasks, setUserAssignedTasks] = useState<Invigilation[]>([]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -104,6 +107,18 @@ const Invigilations = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // Filter assigned tasks for staff/intern
+  useEffect(() => {
+    if (currentUser && (userRole === "staff" || userRole === "intern")) {
+      const assignedTasks = invigilations.filter(inv => 
+        inv.assignedInvigilators && 
+        inv.assignedInvigilators.includes(currentUser.uid) &&
+        inv.status === "Assigned"
+      );
+      setUserAssignedTasks(assignedTasks);
+    }
+  }, [invigilations, currentUser, userRole]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -197,8 +212,20 @@ const Invigilations = () => {
   const filteredInvigilations = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return invigilations.filter((invigilation) => {
-      // Role-based filtering: lecturers see only their own requests
-      const matchesRole = userRole === "admin" || userRole === "coordinator" || invigilation.userId === currentUser?.uid;
+      // Role-based filtering: 
+      // - Admin/Coordinator see all requests
+      // - Lecturers see only their own requests
+      // - Staff/Intern see only tasks assigned to them
+      let matchesRole = false;
+      
+      if (userRole === "admin" || userRole === "coordinator") {
+        matchesRole = true;
+      } else if (userRole === "lecturer") {
+        matchesRole = invigilation.userId === currentUser?.uid;
+      } else if (userRole === "staff" || userRole === "intern") {
+        matchesRole = invigilation.assignedInvigilators?.includes(currentUser?.uid || "") || false;
+      }
+      
       const matchesSearch =
         invigilation.subject.toLowerCase().includes(term) ||
         invigilation.lecturer.toLowerCase().includes(term) ||
@@ -400,11 +427,15 @@ const Invigilations = () => {
               />
               <div>
                 <h1 className="text-xl font-bold">
-                  {userRole === "lecturer" ? "Invigilation Requests" : "Manage Invigilation Assignments"}
+                  {userRole === "lecturer" ? "Invigilation Requests" : 
+                   userRole === "staff" || userRole === "intern" ? "My Invigilation Tasks" : 
+                   "Manage Invigilation Assignments"}
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   {userRole === "lecturer"
                     ? "View and manage your invigilation requests"
+                    : userRole === "staff" || userRole === "intern"
+                    ? "View your assigned invigilation tasks"
                     : "Manage invigilation assignments"}
                 </p>
               </div>
@@ -413,7 +444,85 @@ const Invigilations = () => {
               <Button onClick={() => navigate('/dashboard')}>
                 Back to Dashboard
               </Button>
-              {userRole !== "coordinator" && (
+              
+              {/* Show assigned tasks notification for staff/intern */}
+              {(userRole === "staff" || userRole === "intern") && userAssignedTasks.length > 0 && (
+                <Dialog open={isAssignedTasksOpen} onOpenChange={setIsAssignedTasksOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="relative">
+                      <Bell className="h-4 w-4 mr-2" />
+                      My Tasks ({userAssignedTasks.length})
+                      {userAssignedTasks.length > 0 && (
+                        <span className="absolute -top-2 -right-2 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center">
+                          {userAssignedTasks.length}
+                        </span>
+                      )}
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle>My Assigned Invigilation Tasks</DialogTitle>
+                      <DialogDescription>
+                        You have {userAssignedTasks.length} assigned invigilation task{userAssignedTasks.length !== 1 ? 's' : ''}.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 mt-4">
+                      {userAssignedTasks.map((task) => (
+                        <Card key={task.id}>
+                          <CardHeader className="pb-3">
+                            <div className="flex items-start justify-between">
+                              <CardTitle className="text-lg">{task.subject}</CardTitle>
+                              <Badge variant={getStatusColor(task.status)}>
+                                {task.status}
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-2">
+                              <div className="flex items-center text-sm">
+                                <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
+                                <span className="font-medium">{task.date}</span>
+                              </div>
+                              
+                              <div className="flex items-center text-sm">
+                                <Clock className="h-4 w-4 mr-2 text-muted-foreground" />
+                                <span>{task.time}</span>
+                              </div>
+
+                              <div className="flex items-center text-sm">
+                                <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
+                                <span>{task.venue}</span>
+                              </div>
+
+                              <div className="flex items-center text-sm">
+                                <User className="h-4 w-4 mr-2 text-muted-foreground" />
+                                <span>Lecturer: {task.lecturer}</span>
+                              </div>
+
+                              {task.notes && (
+                                <div className="bg-muted/50 p-3 rounded-lg mt-2">
+                                  <div className="flex items-start text-sm">
+                                    <BookOpen className="h-4 w-4 mr-2 text-muted-foreground mt-0.5" />
+                                    <div>
+                                      <p className="font-medium mb-1">Notes:</p>
+                                      <p className="text-muted-foreground">{task.notes}</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={() => setIsAssignedTasksOpen(false)}>Close</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
+              
+              {userRole !== "coordinator" && userRole !== "staff" && userRole !== "intern" && (
                 <Dialog open={isCreateOpen} onOpenChange={(o) => { setIsCreateOpen(o); if (!o) resetForm(); }}>
                   <DialogTrigger asChild>
                     <Button onClick={() => setIsCreateOpen(true)}>
@@ -499,34 +608,36 @@ const Invigilations = () => {
       </header>
 
       <div className="container mx-auto px-4 py-6">
-        {/* Search and Filter Bar */}
-        <div className="flex items-center space-x-4 mb-6">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-            <Input
-              placeholder="Search invigilations..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+        {/* Search and Filter Bar - Only show for admin/coordinator/lecturer */}
+        {(userRole === "admin" || userRole === "coordinator" || userRole === "lecturer") && (
+          <div className="flex items-center space-x-4 mb-6">
+            <div className="relative flex-1 max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Search invigilations..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="assigned">Assigned</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="requested">Requested</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline">
+              <Filter className="h-4 w-4 mr-2" />
+              More Filters
+            </Button>
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="assigned">Assigned</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="requested">Requested</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="outline">
-            <Filter className="h-4 w-4 mr-2" />
-            More Filters
-          </Button>
-        </div>
+        )}
 
         {/* Invigilations Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -858,78 +969,80 @@ const Invigilations = () => {
                       </DialogContent>
                       </Dialog>
                     ) : (
-                      <Dialog open={isEditOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsEditOpen(false); setSelected(null); } }}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setForm({ subject: invigilation.subject, date: invigilation.date, time: invigilation.time, venue: invigilation.venue, lecturer: invigilation.lecturer, userId: invigilation.userId, studentCount: invigilation.studentCount, invigilatorCount: invigilation.invigilatorCount || 1, status: invigilation.status, type: invigilation.type, notes: invigilation.notes || "", assignedInvigilators: invigilation.assignedInvigilators || [] }); setIsEditOpen(true); }}>
-                            Edit
-                          </Button>
-                        </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Edit Invigilation</DialogTitle>
-                          <DialogDescription>Update details and save changes.</DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-3">
-                          <div>
-                            <label className="text-sm font-medium">Subject</label>
-                            <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
+                      (userRole === "lecturer") && (
+                        <Dialog open={isEditOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsEditOpen(false); setSelected(null); } }}>
+                          <DialogTrigger asChild>
+                            <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setForm({ subject: invigilation.subject, date: invigilation.date, time: invigilation.time, venue: invigilation.venue, lecturer: invigilation.lecturer, userId: invigilation.userId, studentCount: invigilation.studentCount, invigilatorCount: invigilation.invigilatorCount || 1, status: invigilation.status, type: invigilation.type, notes: invigilation.notes || "", assignedInvigilators: invigilation.assignedInvigilators || [] }); setIsEditOpen(true); }}>
+                              Edit
+                            </Button>
+                          </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Edit Invigilation</DialogTitle>
+                            <DialogDescription>Update details and save changes.</DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-3">
                             <div>
-                              <label className="text-sm font-medium">Date</label>
-                              <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                              <label className="text-sm font-medium">Subject</label>
+                              <Input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-sm font-medium">Date</label>
+                                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium">Time</label>
+                                <Input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-sm font-medium">Venue</label>
+                                <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
+                              </div>
+                              {/* Lecturer field hidden for lecturers; coordinators can manage in admin tools */}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-sm font-medium">Students</label>
+                                <Input type="number" min={0} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: Number(e.target.value) })} />
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium">Invigilators needed</label>
+                                <Input type="number" min={1} value={form.invigilatorCount} onChange={(e) => setForm({ ...form, invigilatorCount: Number(e.target.value) })} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="text-sm font-medium">Type</label>
+                                <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select type" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Final Exam">Final Exam</SelectItem>
+                                    <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
+                                    <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                    <SelectItem value="Quiz">Quiz</SelectItem>
+                                    <SelectItem value="Final Project">Final Project</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              {/* Status hidden for lecturers; coordinator can manage elsewhere */}
                             </div>
                             <div>
-                              <label className="text-sm font-medium">Time</label>
-                              <Input value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} />
+                              <label className="text-sm font-medium">Notes</label>
+                              <Textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-sm font-medium">Venue</label>
-                              <Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} />
-                            </div>
-                            {/* Lecturer field hidden for lecturers; coordinators can manage in admin tools */}
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-sm font-medium">Students</label>
-                              <Input type="number" min={0} value={form.studentCount} onChange={(e) => setForm({ ...form, studentCount: Number(e.target.value) })} />
-                            </div>
-                            <div>
-                              <label className="text-sm font-medium">Invigilators needed</label>
-                              <Input type="number" min={1} value={form.invigilatorCount} onChange={(e) => setForm({ ...form, invigilatorCount: Number(e.target.value) })} />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-sm font-medium">Type</label>
-                              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Final Exam">Final Exam</SelectItem>
-                                  <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
-                                  <SelectItem value="Practical Test">Practical Test</SelectItem>
-                                  <SelectItem value="Quiz">Quiz</SelectItem>
-                                  <SelectItem value="Final Project">Final Project</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            {/* Status hidden for lecturers; coordinator can manage elsewhere */}
-                          </div>
-                          <div>
-                            <label className="text-sm font-medium">Notes</label>
-                            <Textarea value={form.notes || ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => { setIsEditOpen(false); setSelected(null); }}>Cancel</Button>
-                          <Button onClick={submitEdit}>Save Changes</Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                          <DialogFooter>
+                            <Button variant="outline" onClick={() => { setIsEditOpen(false); setSelected(null); }}>Cancel</Button>
+                            <Button onClick={submitEdit}>Save Changes</Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                      )
                     )}
                   </div>
                 </div>
@@ -942,7 +1055,11 @@ const Invigilations = () => {
           <div className="text-center py-12">
             <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-lg font-medium text-muted-foreground">No invigilations found</h3>
-            <p className="text-sm text-muted-foreground">Try adjusting your search or filter criteria</p>
+            <p className="text-sm text-muted-foreground">
+              {userRole === "staff" || userRole === "intern" 
+                ? "You don't have any assigned invigilation tasks yet." 
+                : "Try adjusting your search or filter criteria"}
+            </p>
           </div>
         )}
       </div>

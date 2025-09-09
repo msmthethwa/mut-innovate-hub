@@ -1,13 +1,16 @@
-# Task Implementation Plan
+# Invigilation Access Update - TODO List
 
-## Projects Page (src/pages/Projects.tsx)
-- [x] Filter out lecturers and coordinators from team member selection in create project dialog
-- [x] Filter out lecturers and coordinators from team member selection in edit project dialog
-
-## Invigilation Assignments Page (src/pages/Invigilations.tsx)
-- [x] Make Assign Invigilators modal size flexible and scrollable for all screen sizes
+## Completed Tasks
+- [x] Update Invigilations.tsx filtering logic to allow staff and interns to view assigned invigilations
+- [x] Add "Invigilation Duties" quick action for interns in Dashboard.tsx
+- [x] Verify permission restrictions are maintained (staff/interns can only view, not edit/assign)
 
 ## Followup Steps
-- [ ] Test project creation/editing to verify team member filtering
-- [ ] Test Assign Invigilators modal on different screen sizes
-- [ ] Run application to check for errors
+- [ ] Test the changes to ensure staff and interns can see their assigned invigilations
+- [ ] Verify that permission restrictions are maintained (no edit/assign buttons for staff/interns)
+- [ ] Test navigation from intern dashboard to invigilations page
+
+## Summary of Changes
+- Modified `filteredInvigilations` in Invigilations.tsx to include condition for staff/intern roles checking `assignedInvigilators` array
+- Added invigilation quick action to intern dashboard in Dashboard.tsx
+- Existing permission checks ensure staff/interns cannot perform admin/coordinator actions

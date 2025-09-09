@@ -96,6 +96,15 @@ const Dashboard = () => {
               subText: "active projects"
             },
             {
+              title: "Invigilation Duties",
+              description: "Your assigned invigilation schedule",
+              route: "/invigilations",
+              icon: Calendar,
+              color: "text-destructive",
+              count: 0,
+              subText: "upcoming duties"
+            },
+            {
               title: "Learning Progress",
               description: "Track your skill development",
               route: "/learning",
