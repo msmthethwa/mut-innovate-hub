@@ -5,10 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { collection, query, where, getDocs, doc, updateDoc, getDoc } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
+import { onAuthStateChanged, User } from "firebase/auth";
 import { toast } from "sonner";
-import { UserCheck, UserX, Users, ArrowLeft, Clock, CheckCircle, XCircle } from "lucide-react";
+import { UserCheck, UserX, Users, ArrowLeft, Clock, CheckCircle, XCircle, Search, Filter, Download, Eye, UserCog, Shield, Ban, CheckSquare, Square } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface UserRequest {
@@ -22,16 +25,28 @@ interface UserRequest {
   status: string;
   createdAt: any;
   rejectionReason?: string;
+  isActive?: boolean;
+  lastLogin?: any;
+  reviewedAt?: any;
+  reviewedBy?: string;
 }
 
 const AccessManagement = () => {
   const [requests, setRequests] = useState<UserRequest[]>([]);
+  const [filteredRequests, setFilteredRequests] = useState<UserRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<UserRequest | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
   const [customReason, setCustomReason] = useState("");
   const [showDialog, setShowDialog] = useState(false);
-  const [actionType, setActionType] = useState<"approve" | "reject">("approve");
+  const [actionType, setActionType] = useState<"approve" | "reject" | "activate" | "deactivate">("approve");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [showUserDetails, setShowUserDetails] = useState(false);
 
   const predefinedReasons = [
     "Insufficient information provided",
@@ -43,16 +58,29 @@ const AccessManagement = () => {
   ];
 
   useEffect(() => {
-    fetchUserRequests();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      if (user) {
+        fetchUserRequests(user.uid);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
-  const fetchUserRequests = async () => {
+  useEffect(() => {
+    filterRequests();
+  }, [requests, searchTerm, statusFilter, roleFilter]);
+
+  const fetchUserRequests = async (currentUserId: string) => {
     try {
       const q = query(collection(db, "users"));
       const querySnapshot = await getDocs(q);
       
       const userRequests: UserRequest[] = [];
       querySnapshot.forEach((doc) => {
+        // Skip the current logged-in user
+        if (doc.id === currentUserId) return;
+        
         const data = doc.data();
         userRequests.push({
           id: doc.id,
@@ -64,7 +92,11 @@ const AccessManagement = () => {
           reason: data.reason,
           status: data.status || "pending",
           createdAt: data.createdAt,
-          rejectionReason: data.rejectionReason
+          rejectionReason: data.rejectionReason,
+          isActive: data.isActive !== false, // Default to true if not set
+          lastLogin: data.lastLogin,
+          reviewedAt: data.reviewedAt,
+          reviewedBy: data.reviewedBy
         });
       });
 
@@ -83,6 +115,38 @@ const AccessManagement = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const filterRequests = () => {
+    let filtered = requests;
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(user => 
+        user.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.department.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== "all") {
+      if (statusFilter === "active") {
+        filtered = filtered.filter(user => user.isActive === true);
+      } else if (statusFilter === "inactive") {
+        filtered = filtered.filter(user => user.isActive === false);
+      } else {
+        filtered = filtered.filter(user => user.status === statusFilter);
+      }
+    }
+
+    // Role filter
+    if (roleFilter !== "all") {
+      filtered = filtered.filter(user => user.role === roleFilter);
+    }
+
+    setFilteredRequests(filtered);
   };
 
   const handleApprove = async (userId: string) => {
@@ -142,7 +206,110 @@ const AccessManagement = () => {
     }
   };
 
-  const openDialog = (request: UserRequest, type: "approve" | "reject") => {
+  const handleActivateUser = async (userId: string) => {
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        isActive: true,
+        lastUpdated: new Date()
+      });
+
+      setRequests(prev => 
+        prev.map(req => 
+          req.id === userId 
+            ? { ...req, isActive: true }
+            : req
+        )
+      );
+
+      toast.success("User activated successfully");
+    } catch (error) {
+      console.error("Error activating user:", error);
+      toast.error("Failed to activate user");
+    }
+  };
+
+  const handleDeactivateUser = async (userId: string) => {
+    try {
+      await updateDoc(doc(db, "users", userId), {
+        isActive: false,
+        lastUpdated: new Date()
+      });
+
+      setRequests(prev => 
+        prev.map(req => 
+          req.id === userId 
+            ? { ...req, isActive: false }
+            : req
+        )
+      );
+
+      toast.success("User deactivated successfully");
+    } catch (error) {
+      console.error("Error deactivating user:", error);
+      toast.error("Failed to deactivate user");
+    }
+  };
+
+  const handleBulkAction = async (action: "activate" | "deactivate" | "approve" | "reject") => {
+    if (selectedUsers.length === 0) {
+      toast.error("Please select users to perform bulk action");
+      return;
+    }
+
+    try {
+      const promises = selectedUsers.map(userId => {
+        switch (action) {
+          case "activate":
+            return updateDoc(doc(db, "users", userId), { isActive: true, lastUpdated: new Date() });
+          case "deactivate":
+            return updateDoc(doc(db, "users", userId), { isActive: false, lastUpdated: new Date() });
+          case "approve":
+            return updateDoc(doc(db, "users", userId), { status: "approved", reviewedAt: new Date() });
+          case "reject":
+            return updateDoc(doc(db, "users", userId), { status: "rejected", reviewedAt: new Date() });
+        }
+      });
+
+      await Promise.all(promises);
+
+      setRequests(prev => 
+        prev.map(req => 
+          selectedUsers.includes(req.id) 
+            ? { 
+                ...req, 
+                isActive: action === "activate" ? true : action === "deactivate" ? false : req.isActive,
+                status: action === "approve" ? "approved" : action === "reject" ? "rejected" : req.status
+              }
+            : req
+        )
+      );
+
+      toast.success(`${selectedUsers.length} users ${action}d successfully`);
+      setSelectedUsers([]);
+      setShowBulkActions(false);
+    } catch (error) {
+      console.error(`Error performing bulk ${action}:`, error);
+      toast.error(`Failed to ${action} users`);
+    }
+  };
+
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev => 
+      prev.includes(userId) 
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
+  const selectAllUsers = () => {
+    setSelectedUsers(filteredRequests.map(user => user.id));
+  };
+
+  const deselectAllUsers = () => {
+    setSelectedUsers([]);
+  };
+
+  const openDialog = (request: UserRequest, type: "approve" | "reject" | "activate" | "deactivate") => {
     setSelectedRequest(request);
     setActionType(type);
     setShowDialog(true);
@@ -159,11 +326,25 @@ const AccessManagement = () => {
     }
   };
 
+  const getActiveStatusBadge = (isActive: boolean) => {
+    return isActive ? (
+      <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+        <CheckCircle className="h-3 w-3 mr-1" />Active
+      </Badge>
+    ) : (
+      <Badge className="bg-gray-100 text-gray-800 hover:bg-gray-100">
+        <Ban className="h-3 w-3 mr-1" />Inactive
+      </Badge>
+    );
+  };
+
   const getRequestCounts = () => {
     const pending = requests.filter(req => req.status === "pending" || !req.status).length;
     const approved = requests.filter(req => req.status === "approved").length;
     const rejected = requests.filter(req => req.status === "rejected").length;
-    return { pending, approved, rejected };
+    const active = requests.filter(req => req.isActive === true).length;
+    const inactive = requests.filter(req => req.isActive === false).length;
+    return { pending, approved, rejected, active, inactive };
   };
 
   const counts = getRequestCounts();
@@ -174,8 +355,8 @@ const AccessManagement = () => {
         <div className="max-w-6xl mx-auto">
           <div className="animate-pulse space-y-6">
             <div className="h-8 bg-muted rounded w-1/3"></div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 2, 3].map(i => (
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              {[1, 2, 3, 4, 5].map(i => (
                 <div key={i} className="h-24 bg-muted rounded"></div>
               ))}
             </div>
@@ -208,7 +389,7 @@ const AccessManagement = () => {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
@@ -250,34 +431,210 @@ const AccessManagement = () => {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <UserCheck className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{counts.active}</p>
+                  <p className="text-sm text-muted-foreground">Active Users</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4">
+                <div className="p-2 bg-gray-100 rounded-lg">
+                  <Ban className="h-6 w-6 text-gray-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{counts.inactive}</p>
+                  <p className="text-sm text-muted-foreground">Inactive Users</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
+
+        {/* Search and Filter Controls */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Search & Filter Users</CardTitle>
+            <CardDescription>
+              Find and manage users with advanced filtering options
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search users..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={roleFilter} onValueChange={setRoleFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="coordinator">Coordinator</SelectItem>
+                  <SelectItem value="lab-staff">Lab Staff</SelectItem>
+                  <SelectItem value="student">Student</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowBulkActions(!showBulkActions)}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <CheckSquare className="h-4 w-4" />
+                  Bulk Actions
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Export functionality would go here
+                    toast.info("Export functionality coming soon");
+                  }}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                </Button>
+              </div>
+            </div>
+
+            {showBulkActions && (
+              <div className="border rounded-lg p-4 bg-muted/50">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      onClick={selectAllUsers}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Select All
+                    </Button>
+                    <Button
+                      onClick={deselectAllUsers}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Deselect All
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {selectedUsers.length} users selected
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleBulkAction("activate")}
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      Activate Selected
+                    </Button>
+                    <Button
+                      onClick={() => handleBulkAction("deactivate")}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      Deactivate Selected
+                    </Button>
+                    <Button
+                      onClick={() => handleBulkAction("approve")}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      Approve Selected
+                    </Button>
+                    <Button
+                      onClick={() => handleBulkAction("reject")}
+                      size="sm"
+                      variant="destructive"
+                    >
+                      Reject Selected
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* User Requests Table */}
         <Card>
           <CardHeader>
-            <CardTitle>User Access Requests</CardTitle>
+            <CardTitle>User Management</CardTitle>
             <CardDescription>
-              Review and manage all user access requests
+              Review and manage all user access requests and status
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {requests.length === 0 ? (
+              {filteredRequests.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  No user requests found
+                  {requests.length === 0 ? "No user requests found" : "No users match your filters"}
                 </div>
               ) : (
-                requests.map((request) => (
+                filteredRequests.map((request) => (
                   <div key={request.id} className="border rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
+                        {showBulkActions && (
+                          <Checkbox
+                            checked={selectedUsers.includes(request.id)}
+                            onCheckedChange={() => toggleUserSelection(request.id)}
+                          />
+                        )}
                         <div>
                           <h3 className="font-semibold">{request.firstName} {request.lastName}</h3>
                           <p className="text-sm text-muted-foreground">{request.email}</p>
                         </div>
-                        {getStatusBadge(request.status)}
+                        <div className="flex gap-2">
+                          {getStatusBadge(request.status)}
+                          {getActiveStatusBadge(request.isActive || false)}
+                        </div>
                       </div>
                       <div className="flex gap-2">
+                        <Button
+                          onClick={() => {
+                            setSelectedRequest(request);
+                            setShowUserDetails(true);
+                          }}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View
+                        </Button>
+                        
                         {request.status === "pending" || !request.status ? (
                           <>
                             <Button
@@ -298,14 +655,32 @@ const AccessManagement = () => {
                             </Button>
                           </>
                         ) : (
-                          <div className="text-sm text-muted-foreground">
-                            {request.status === "approved" ? "✓ Approved" : "✗ Rejected"}
-                          </div>
+                          <>
+                            {request.isActive ? (
+                              <Button
+                                onClick={() => openDialog(request, "deactivate")}
+                                size="sm"
+                                variant="destructive"
+                              >
+                                <Ban className="h-4 w-4 mr-1" />
+                                Deactivate
+                              </Button>
+                            ) : (
+                              <Button
+                                onClick={() => openDialog(request, "activate")}
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700"
+                              >
+                                <UserCheck className="h-4 w-4 mr-1" />
+                                Activate
+                              </Button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="font-medium">Role:</span> {request.role}
                       </div>
@@ -315,6 +690,10 @@ const AccessManagement = () => {
                       <div>
                         <span className="font-medium">Applied:</span>{" "}
                         {request.createdAt ? new Date(request.createdAt.toDate()).toLocaleDateString() : "N/A"}
+                      </div>
+                      <div>
+                        <span className="font-medium">Last Login:</span>{" "}
+                        {request.lastLogin ? new Date(request.lastLogin.toDate()).toLocaleDateString() : "Never"}
                       </div>
                     </div>
                     
@@ -341,12 +720,18 @@ const AccessManagement = () => {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {actionType === "approve" ? "Approve" : "Reject"} Access Request
+                {actionType === "approve" ? "Approve" : 
+                 actionType === "reject" ? "Reject" :
+                 actionType === "activate" ? "Activate" : "Deactivate"} User
               </DialogTitle>
               <DialogDescription>
                 {actionType === "approve" 
                   ? `Are you sure you want to approve access for ${selectedRequest?.firstName} ${selectedRequest?.lastName}?`
-                  : `Please provide a reason for rejecting ${selectedRequest?.firstName} ${selectedRequest?.lastName}'s access request.`
+                  : actionType === "reject"
+                  ? `Please provide a reason for rejecting ${selectedRequest?.firstName} ${selectedRequest?.lastName}'s access request.`
+                  : actionType === "activate"
+                  ? `Are you sure you want to activate ${selectedRequest?.firstName} ${selectedRequest?.lastName}?`
+                  : `Are you sure you want to deactivate ${selectedRequest?.firstName} ${selectedRequest?.lastName}?`
                 }
               </DialogDescription>
             </DialogHeader>
@@ -391,16 +776,158 @@ const AccessManagement = () => {
                 onClick={() => {
                   if (actionType === "approve") {
                     handleApprove(selectedRequest!.id);
-                  } else {
+                  } else if (actionType === "reject") {
                     handleReject(selectedRequest!.id);
+                  } else if (actionType === "activate") {
+                    handleActivateUser(selectedRequest!.id);
+                    setShowDialog(false);
+                  } else if (actionType === "deactivate") {
+                    handleDeactivateUser(selectedRequest!.id);
+                    setShowDialog(false);
                   }
                 }}
-                className={actionType === "approve" ? "bg-green-600 hover:bg-green-700" : ""}
-                variant={actionType === "reject" ? "destructive" : "default"}
+                className={
+                  actionType === "approve" || actionType === "activate" 
+                    ? "bg-green-600 hover:bg-green-700" 
+                    : ""
+                }
+                variant={actionType === "reject" || actionType === "deactivate" ? "destructive" : "default"}
               >
-                {actionType === "approve" ? "Approve" : "Reject"}
+                {actionType === "approve" ? "Approve" : 
+                 actionType === "reject" ? "Reject" :
+                 actionType === "activate" ? "Activate" : "Deactivate"}
               </Button>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* User Details Dialog */}
+        <Dialog open={showUserDetails} onOpenChange={setShowUserDetails}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>User Details</DialogTitle>
+              <DialogDescription>
+                Complete information for {selectedRequest?.firstName} {selectedRequest?.lastName}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedRequest && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Full Name</label>
+                    <p className="text-sm">{selectedRequest.firstName} {selectedRequest.lastName}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Email</label>
+                    <p className="text-sm">{selectedRequest.email}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Role</label>
+                    <p className="text-sm capitalize">{selectedRequest.role}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Department</label>
+                    <p className="text-sm">{selectedRequest.department}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Status</label>
+                    <div className="flex gap-2">
+                      {getStatusBadge(selectedRequest.status)}
+                      {getActiveStatusBadge(selectedRequest.isActive || false)}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Applied Date</label>
+                    <p className="text-sm">
+                      {selectedRequest.createdAt ? new Date(selectedRequest.createdAt.toDate()).toLocaleDateString() : "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Last Login</label>
+                    <p className="text-sm">
+                      {selectedRequest.lastLogin ? new Date(selectedRequest.lastLogin.toDate()).toLocaleDateString() : "Never"}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Reviewed Date</label>
+                    <p className="text-sm">
+                      {selectedRequest.reviewedAt ? new Date(selectedRequest.reviewedAt.toDate()).toLocaleDateString() : "Not reviewed"}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Reason for Access</label>
+                  <p className="text-sm mt-1 p-3 bg-muted rounded-lg">{selectedRequest.reason}</p>
+                </div>
+
+                {selectedRequest.status === "rejected" && selectedRequest.rejectionReason && (
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground">Rejection Reason</label>
+                    <p className="text-sm mt-1 p-3 bg-red-50 border border-red-200 rounded-lg text-red-800">
+                      {selectedRequest.rejectionReason}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setShowUserDetails(false)}>
+                    Close
+                  </Button>
+                  {selectedRequest.status === "pending" || !selectedRequest.status ? (
+                    <>
+                      <Button
+                        onClick={() => {
+                          setShowUserDetails(false);
+                          openDialog(selectedRequest, "approve");
+                        }}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        <UserCheck className="h-4 w-4 mr-1" />
+                        Approve
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setShowUserDetails(false);
+                          openDialog(selectedRequest, "reject");
+                        }}
+                        variant="destructive"
+                      >
+                        <UserX className="h-4 w-4 mr-1" />
+                        Reject
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      {selectedRequest.isActive ? (
+                        <Button
+                          onClick={() => {
+                            setShowUserDetails(false);
+                            openDialog(selectedRequest, "deactivate");
+                          }}
+                          variant="destructive"
+                        >
+                          <Ban className="h-4 w-4 mr-1" />
+                          Deactivate
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            setShowUserDetails(false);
+                            openDialog(selectedRequest, "activate");
+                          }}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          <UserCheck className="h-4 w-4 mr-1" />
+                          Activate
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       </div>
