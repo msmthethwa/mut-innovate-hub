@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, collection, getDocs, addDoc, updateDoc, query, where } from "firebase/firestore";
+import { doc, getDoc, collection, getDocs, addDoc, updateDoc, query, where, onSnapshot, orderBy, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 interface Task {
@@ -52,6 +52,10 @@ const Tasks = () => {
   const [users, setUsers] = useState<any[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [progressDraft, setProgressDraft] = useState<number>(0);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [messageText, setMessageText] = useState("");
   const [newTask, setNewTask] = useState({
     title: "",
     description: "",
@@ -219,6 +223,40 @@ const Tasks = () => {
         description: "Failed to update task progress",
         variant: "destructive",
       });
+    }
+  };
+
+  // Subscribe to chat messages for the selected task
+  useEffect(() => {
+    if (!selectedTask || !showDetailsDialog) return;
+    const messagesRef = collection(db, "tasks", selectedTask.id, "messages");
+    const q = query(messagesRef, orderBy("createdAt", "asc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(msgs);
+    });
+    return () => unsubscribe();
+  }, [selectedTask, showDetailsDialog]);
+
+  const openTaskDetails = (task: Task) => {
+    setSelectedTask(task);
+    setProgressDraft(task.progress);
+    setShowDetailsDialog(true);
+  };
+
+  const handleSendMessage = async () => {
+    if (!selectedTask || !messageText.trim() || !user) return;
+    try {
+      await addDoc(collection(db, "tasks", selectedTask.id, "messages"), {
+        text: messageText.trim(),
+        userId: user.id,
+        role: user.role,
+        createdAt: serverTimestamp(),
+      });
+      setMessageText("");
+    } catch (error) {
+      console.error("Error sending message:", error);
+      toast({ title: "Error", description: "Failed to send message", variant: "destructive" });
     }
   };
 
@@ -478,62 +516,108 @@ const Tasks = () => {
                 </div>
                 
                 <div className="flex items-center justify-between pt-4 border-t">
-                  {(user?.role === 'coordinator' || task.assignedTo === user?.id) && (
-                    <Dialog>
+                  <div className="flex gap-2 ml-auto">
+                    <Dialog open={showDetailsDialog && selectedTask?.id === task.id} onOpenChange={(open) => {
+                      if (!open) {
+                        setShowDetailsDialog(false);
+                        setSelectedTask(null);
+                        setMessages([]);
+                      }
+                    }}>
                       <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={() => setSelectedTask(task)}>
-                          Update Progress
+                        <Button variant="outline" size="sm" onClick={() => openTaskDetails(task)}>
+                          View Details
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="sm:max-w-[400px]">
+                      <DialogContent className="sm:max-w-[650px]">
                         <DialogHeader>
-                          <DialogTitle>Update Task Progress</DialogTitle>
+                          <DialogTitle>Task Details</DialogTitle>
                         </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label>Task: {selectedTask?.title}</Label>
-                            <Label>Current Progress: {selectedTask?.progress}%</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-2">
+                          <div className="space-y-3 text-sm">
+                            <div>
+                              <p className="font-medium">Title</p>
+                              <p>{selectedTask?.title}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">Description</p>
+                              <p className="whitespace-pre-wrap">{selectedTask?.description}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="font-medium">Project</p>
+                                <p>{selectedTask?.projectName}</p>
+                              </div>
+                              <div>
+                                <p className="font-medium">Priority</p>
+                                <p>{selectedTask?.priority}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="font-medium">Assignee</p>
+                                <p>{selectedTask?.assigneeName}</p>
+                              </div>
+                              <div>
+                                <p className="font-medium">Due Date</p>
+                                <p>{selectedTask?.dueDate}</p>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="font-medium">Progress</p>
+                              <div className="flex items-center gap-3 mt-1">
+                                <div className="flex-1 bg-muted rounded-full h-2">
+                                  <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${selectedTask?.progress ?? 0}%` }} />
+                                </div>
+                                <span className="text-xs font-medium">{selectedTask?.progress}%</span>
+                              </div>
+                            </div>
+                            {(user?.role === 'coordinator' || selectedTask?.assignedTo === user?.id) && (
+                              <div className="mt-2">
+                                <Label htmlFor="progress-slider">Update Progress</Label>
+                                <div className="flex items-center gap-3 mt-2">
+                                  <Slider id="progress-slider" min={0} max={100} step={5} value={[progressDraft]} onValueChange={(value) => setProgressDraft(value[0])} className="flex-1" />
+                                  <span className="text-xs font-medium w-10 text-right">{progressDraft}%</span>
+                                </div>
+                                <div className="flex justify-end mt-2">
+                                  <Button size="sm" onClick={async () => {
+                                    if (selectedTask) {
+                                      await handleUpdateProgress(selectedTask.id, progressDraft);
+                                      setSelectedTask({ ...selectedTask, progress: progressDraft, status: progressDraft === 100 ? 'Completed' : progressDraft > 0 ? 'In Progress' : 'Pending' });
+                                    }
+                                  }}>Save Progress</Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="progress">New Progress</Label>
-                            <Slider
-                              id="progress"
-                              min={0}
-                              max={100}
-                              step={10}
-                              value={[selectedTask?.progress || 0]}
-                              onValueChange={(value) => {
-                                if (selectedTask) {
-                                  setSelectedTask({ ...selectedTask, progress: value[0] });
-                                }
-                              }}
-                              className="w-full"
-                            />
-                            <div className="text-center text-sm text-muted-foreground">
-                              {selectedTask?.progress}%
+                          <div className="flex flex-col h-full">
+                            <p className="font-medium text-sm mb-2">Discussion</p>
+                            <div className="border rounded-md p-3 max-h-[300px] overflow-auto space-y-3 bg-muted/30">
+                              {messages.length === 0 && (
+                                <p className="text-xs text-muted-foreground">No messages yet. Start the conversation.</p>
+                              )}
+                              {messages.map((msg) => {
+                                const sender = users.find(u => u.id === msg.userId);
+                                const senderName = sender ? `${sender.firstName} ${sender.lastName}` : msg.role || 'User';
+                                const isMine = msg.userId === user?.id;
+                                return (
+                                  <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`rounded-lg px-3 py-2 text-sm max-w-[75%] ${isMine ? 'bg-primary text-primary-foreground' : 'bg-accent'}`}>
+                                      <div className="text-[10px] opacity-80 mb-0.5">{senderName} • {msg.role}</div>
+                                      <div>{msg.text}</div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="flex items-center gap-2 mt-2">
+                              <Input placeholder="Type a message" value={messageText} onChange={(e) => setMessageText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSendMessage(); } }} />
+                              <Button onClick={handleSendMessage}>Send</Button>
                             </div>
                           </div>
                         </div>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline">
-                            Cancel
-                          </Button>
-                          <Button onClick={() => {
-                            if (selectedTask) {
-                              handleUpdateProgress(selectedTask.id, selectedTask.progress);
-                              setSelectedTask(null);
-                            }
-                          }}>
-                            Update Progress
-                          </Button>
-                        </div>
                       </DialogContent>
                     </Dialog>
-                  )}
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">
-                      View Details
-                    </Button>
                     {user?.role === 'coordinator' && (
                       <Button size="sm">
                         Edit Task

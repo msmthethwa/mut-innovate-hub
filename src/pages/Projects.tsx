@@ -45,7 +45,20 @@ const Projects = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [newProject, setNewProject] = useState({
+    name: "",
+    description: "",
+    manager: "",
+    startDate: "",
+    endDate: "",
+    status: "Planning",
+    team: [] as string[]
+  });
+
+  const [editProject, setEditProject] = useState({
     name: "",
     description: "",
     manager: "",
@@ -115,6 +128,42 @@ const Projects = () => {
         description: "Failed to fetch projects",
         variant: "destructive",
       });
+    }
+  };
+
+  const openProjectDetails = (project: Project) => {
+    setSelectedProject(project);
+    setShowDetailsDialog(true);
+  };
+
+  const openEditProject = (project: Project) => {
+    setSelectedProject(project);
+    setEditProject({
+      name: project.name,
+      description: project.description,
+      manager: project.manager,
+      startDate: project.startDate,
+      endDate: project.endDate,
+      status: project.status,
+      team: project.team || []
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleEditProjectSave = async () => {
+    if (!selectedProject) return;
+    try {
+      await updateDoc(doc(db, "projects", selectedProject.id), {
+        ...editProject,
+        updatedAt: new Date()
+      });
+      toast({ title: "Success", description: "Project updated successfully" });
+      setShowEditDialog(false);
+      setSelectedProject(null);
+      await fetchProjects();
+    } catch (error) {
+      console.error("Error updating project:", error);
+      toast({ title: "Error", description: "Failed to update project", variant: "destructive" });
     }
   };
 
@@ -394,12 +443,117 @@ const Projects = () => {
                   </div>
 
                   <div className="flex gap-2 pt-2">
-                    <Button variant="outline" size="sm" className="flex-1">
-                      View Details
-                    </Button>
-                    <Button size="sm" className="flex-1">
-                      Edit Project
-                    </Button>
+                    <Dialog open={showDetailsDialog && selectedProject?.id === project.id} onOpenChange={(open) => {
+                      if (!open) {
+                        setShowDetailsDialog(false);
+                        setSelectedProject(null);
+                      }
+                    }}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="flex-1" onClick={() => openProjectDetails(project)}>
+                          View Details
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[500px]">
+                        <DialogHeader>
+                          <DialogTitle>Project Details</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-3 py-2 text-sm">
+                          <div>
+                            <p className="font-medium">Name</p>
+                            <p>{selectedProject?.name}</p>
+                          </div>
+                          <div>
+                            <p className="font-medium">Description</p>
+                            <p className="whitespace-pre-wrap">{selectedProject?.description}</p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="font-medium">Manager</p>
+                              <p>{selectedProject?.manager}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">Status</p>
+                              <p>{selectedProject?.status}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="font-medium">Start</p>
+                              <p>{selectedProject?.startDate}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium">End</p>
+                              <p>{selectedProject?.endDate}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="font-medium">Team</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {selectedProject?.team?.map((member, idx) => (
+                                <Badge key={idx} variant="outline" className="text-xs">{member}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                    {user?.role === 'coordinator' && (
+                      <Dialog open={showEditDialog && selectedProject?.id === project.id} onOpenChange={(open) => {
+                        if (!open) {
+                          setShowEditDialog(false);
+                          setSelectedProject(null);
+                        }
+                      }}>
+                        <DialogTrigger asChild>
+                          <Button size="sm" className="flex-1" onClick={() => openEditProject(project)}>
+                            Edit Project
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[500px]">
+                          <DialogHeader>
+                            <DialogTitle>Edit Project</DialogTitle>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-2">
+                            <div className="grid gap-2">
+                              <Label htmlFor="edit-name">Name</Label>
+                              <Input id="edit-name" value={editProject.name} onChange={(e) => setEditProject({ ...editProject, name: e.target.value })} />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="edit-description">Description</Label>
+                              <Textarea id="edit-description" value={editProject.description} onChange={(e) => setEditProject({ ...editProject, description: e.target.value })} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="grid gap-2">
+                                <Label htmlFor="edit-start">Start Date</Label>
+                                <Input id="edit-start" type="date" value={editProject.startDate} onChange={(e) => setEditProject({ ...editProject, startDate: e.target.value })} />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="edit-end">End Date</Label>
+                                <Input id="edit-end" type="date" value={editProject.endDate} onChange={(e) => setEditProject({ ...editProject, endDate: e.target.value })} />
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="edit-status">Status</Label>
+                              <Select value={editProject.status} onValueChange={(value) => setEditProject({ ...editProject, status: value })}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="Planning">Planning</SelectItem>
+                                  <SelectItem value="In Progress">In Progress</SelectItem>
+                                  <SelectItem value="Completed">Completed</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => { setShowEditDialog(false); setSelectedProject(null); }}>Cancel</Button>
+                            <Button onClick={handleEditProjectSave}>Save Changes</Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    )}
                   </div>
                 </div>
               </CardContent>
