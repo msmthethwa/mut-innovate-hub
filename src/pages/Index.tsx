@@ -17,7 +17,7 @@ const Index = () => {
                 className="h-12 w-auto"
               />
               <h1 className="text-2xl font-bold text-primary-foreground">
-                MUT Innovation Lab
+                
               </h1>
             </div>
             <div className="flex items-center space-x-4">
