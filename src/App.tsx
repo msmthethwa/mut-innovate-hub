@@ -13,6 +13,7 @@ import Invigilations from "./pages/Invigilations";
 import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
 import AccessManagement from "./pages/AccessManagement";
+import LearningProgress from "./pages/LearningProgress";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/access-management" element={<AccessManagement />} />
+          <Route path="/learning" element={<LearningProgress />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
