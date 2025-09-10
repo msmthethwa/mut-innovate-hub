@@ -21,6 +21,11 @@ const Index = () => {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              <Link to="/help">
+                <Button variant="ghost" size="sm" className="text-primary-foreground hover:bg-primary-foreground/10">
+                  Help
+                </Button>
+              </Link>
               <Link to="/login">
                 <Button variant="secondary" size="sm">
                   Login
@@ -175,8 +180,11 @@ const Index = () => {
                 <div className="text-sm text-muted-foreground">Mangosuthu University of Technology</div>
               </div>
             </div>
-            <div className="text-sm text-muted-foreground">
-              © 2023 MUT Innovation Lab. All rights reserved.
+            <div className="flex items-center gap-4">
+              <Link to="/help" className="text-sm text-muted-foreground hover:underline">Help</Link>
+              <div className="text-sm text-muted-foreground">
+                © 2023 MUT Innovation Lab. All rights reserved.
+              </div>
             </div>
           </div>
         </div>
