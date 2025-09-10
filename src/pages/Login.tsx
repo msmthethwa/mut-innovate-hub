@@ -19,6 +19,33 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
 
+  // Helper function to map Firebase error codes to user-friendly messages
+  const getFriendlyErrorMessage = (error: any) => {
+    const errorCode = error.code || "";
+    switch (errorCode) {
+      case "auth/invalid-email":
+        return "The email address is not valid.";
+      case "auth/user-disabled":
+        return "This user account has been disabled.";
+      case "auth/user-not-found":
+        return "No user found with this email.";
+      case "auth/wrong-password":
+        return "Incorrect password. Please try again.";
+      case "auth/too-many-requests":
+        return "Too many unsuccessful login attempts. Please try again later.";
+      case "auth/network-request-failed":
+        return "Network error. Please check your internet connection.";
+      case "auth/invalid-credential":
+        return "Invalid credentials provided. Please check and try again.";
+      case "auth/missing-password":
+        return "Password is required.";
+      case "auth/internal-error":
+        return "An internal error occurred. Please try again.";
+      default:
+        return error.message || "An unexpected error occurred. Please try again.";
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -84,7 +111,7 @@ const Login = () => {
       }
 
     } catch (err: any) {
-      const errorMessage = err.message || "Failed to log in.";
+      const errorMessage = getFriendlyErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -102,7 +129,7 @@ const Login = () => {
       await sendPasswordResetEmail(auth, email);
       toast.success("Password reset email sent. Check your inbox.");
     } catch (err: any) {
-      const errorMessage = err.message || "Failed to send reset email.";
+      const errorMessage = getFriendlyErrorMessage(err);
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {

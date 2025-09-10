@@ -1,5 +1,6 @@
-# Dependency Conflict Fix
+# TODO for Login Page User-Friendly Error Messages
 
-- [x] Update package.json to downgrade date-fns to ^3.6.0
-- [x] Run npm install to install updated dependencies
-- [x] Run npm run build to verify the fix
+- [x] Add helper function `getFriendlyErrorMessage` to map Firebase error codes to user-friendly messages
+- [x] Update `handleLogin` catch block to use the helper function
+- [x] Update `handlePasswordReset` catch block to use the helper function
+- [ ] Test the changes by attempting login with invalid credentials
