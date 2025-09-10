@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, LogIn } from "lucide-react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +26,14 @@ const Login = () => {
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+      // Block login if email not verified
+      if (!userCredential.user.emailVerified) {
+        toast.error("Please verify your email address before signing in.");
+        setError("Email not verified. Check your inbox for the verification link.");
+        setLoading(false);
+        return;
+      }
 
       // Fetch user data from Firestore
       const userDoc = await getDoc(doc(db, "users", userCredential.user.uid));
@@ -80,6 +89,24 @@ const Login = () => {
       toast.error(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email) {
+      toast.error("Enter your email to reset your password.");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      toast.success("Password reset email sent. Check your inbox.");
+    } catch (err: any) {
+      const errorMessage = err.message || "Failed to send reset email.";
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -144,9 +171,14 @@ const Login = () => {
                 </div>
               )}
 
-              <Button type="submit" className="w-full" size="lg" disabled={loading}>
-                {loading ? "Signing In..." : "Sign In"}
-              </Button>
+              <div className="space-y-2">
+                <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                  {loading ? "Signing In..." : "Sign In"}
+                </Button>
+                <Button type="button" variant="ghost" className="w-full" onClick={handlePasswordReset} disabled={resetLoading}>
+                  {resetLoading ? "Sending reset email..." : "Forgot Password?"}
+                </Button>
+              </div>
             </form>
 
             <div className="mt-6 text-center space-y-2">

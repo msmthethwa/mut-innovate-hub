@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, UserPlus } from "lucide-react";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { toast } from "sonner";
@@ -60,7 +60,13 @@ const Register = () => {
         });
       }
 
-      toast.success("Registration successful! You can now log in.");
+      // Send email verification
+      if (auth.currentUser) {
+        await sendEmailVerification(auth.currentUser);
+      }
+
+      toast.success("Registration successful! Please verify your email to log in.");
+      setSuccess("A verification link has been sent to your email. Please verify before signing in.");
       setFormData({
         role: "",
         firstName: "",
@@ -72,10 +78,11 @@ const Register = () => {
         password: ""
       });
 
-      // Redirect to login page after successful registration
+      // Sign out to prevent unverified session lingering, then redirect to login
+      try { await signOut(auth); } catch {}
       setTimeout(() => {
         window.location.href = "/login";
-      }, 2000);
+      }, 2500);
 
     } catch (err: any) {
       const errorMessage = err.message || "Failed to register.";
