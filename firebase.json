@@ -2,7 +2,7 @@
   "hosting": [
     {
       "target": "mut-innovationlab",
-      "public": "public",
+      "public": "dist",
       "ignore": [
         "firebase.json",
         "**/.*",
