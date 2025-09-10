@@ -206,7 +206,7 @@ const Help = () => {
                 Need more help? Contact the Innovation Lab support team.
               </p>
               <ul className="list-disc pl-6 space-y-2">
-                <li>Email: <a className="underline" href="mailto:support@mut-innovation.lab">support@mut-innovation.lab</a></li>
+                <li>Email: <a className="underline" href="mailto:mutinnovationlab@gmail.com">mutinnovationlab@gmail.com</a></li>
                 <li>Docs: <a className="underline" href="/help">Help & User Manual</a></li>
               </ul>
             </CardContent>

@@ -51,7 +51,7 @@ const emptyForm: Omit<Invigilation, "id"> = {
   studentCount: 0,
   invigilatorCount: 1,
   status: "Requested",
-  type: "Quiz",
+  type: "Practical Test",
   notes: "",
   assignedInvigilators: [],
 };
@@ -74,6 +74,7 @@ const Invigilations = () => {
   const [userRole, setUserRole] = useState<string>("");
   const [userName, setUserName] = useState<string>("");
   const [userAssignedTasks, setUserAssignedTasks] = useState<Invigilation[]>([]);
+  const [invigilatorNames, setInvigilatorNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentUser) return;
@@ -119,6 +120,88 @@ const Invigilations = () => {
       setUserAssignedTasks(assignedTasks);
     }
   }, [invigilations, currentUser, userRole]);
+
+  // Auto-completion function to mark invigilations as completed when end time is reached
+  const checkAndMarkCompletedInvigilations = async () => {
+    const now = new Date();
+    const currentTime = now.getHours() * 60 + now.getMinutes(); // Convert to minutes for comparison
+    const currentDate = now.toISOString().split('T')[0];
+
+    for (const invigilation of invigilations) {
+      if ((invigilation.status === "Assigned" || invigilation.status === "Confirmed") && invigilation.date === currentDate) {
+        try {
+          // Parse the time range (e.g., "09:00 - 12:00")
+          const timeParts = invigilation.time.split(' - ');
+          if (timeParts.length === 2) {
+            const endTimeStr = timeParts[1].trim();
+            const [endHour, endMinute] = endTimeStr.split(':').map(Number);
+            const endTime = endHour * 60 + endMinute;
+
+            // If current time is past the invigilation end time, mark as completed
+            if (currentTime > endTime) {
+              await updateDoc(doc(db, "invigilations", invigilation.id), {
+                status: "Completed",
+                updatedAt: serverTimestamp()
+              });
+              console.log(`Auto-marked invigilation ${invigilation.subject} as completed`);
+            }
+          }
+        } catch (error) {
+          console.error(`Error auto-marking invigilation ${invigilation.id} as completed:`, error);
+        }
+      }
+    }
+  };
+
+  // Set up auto-completion check every minute
+  useEffect(() => {
+    const interval = setInterval(checkAndMarkCompletedInvigilations, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, [invigilations]);
+
+  // Fetch invigilator names from users collection
+  useEffect(() => {
+    const fetchInvigilatorNames = async () => {
+      try {
+        const namesMap: Record<string, string> = {};
+        
+        // Get all unique invigilator IDs from invigilations
+        const invigilatorIds = new Set<string>();
+        invigilations.forEach(inv => {
+          if (inv.assignedInvigilators) {
+            inv.assignedInvigilators.forEach(id => invigilatorIds.add(id));
+          }
+        });
+
+        // Fetch user details for each invigilator ID
+        for (const id of invigilatorIds) {
+          try {
+            const userDoc = await getDocs(query(collection(db, "users"), where("__name__", "==", id)));
+            if (!userDoc.empty) {
+              const userData = userDoc.docs[0].data();
+              const firstName = userData.firstName || "";
+              const lastName = userData.lastName || "";
+              const fullName = firstName && lastName ? `${firstName} ${lastName}` : (userData.displayName || userData.email || id);
+              namesMap[id] = fullName;
+            } else {
+              namesMap[id] = id; // Fallback to ID if user not found
+            }
+          } catch (error) {
+            console.error(`Error fetching user ${id}:`, error);
+            namesMap[id] = id; // Fallback to ID on error
+          }
+        }
+        
+        setInvigilatorNames(namesMap);
+      } catch (error) {
+        console.error("Error fetching invigilator names:", error);
+      }
+    };
+
+    if (invigilations.length > 0) {
+      fetchInvigilatorNames();
+    }
+  }, [invigilations]);
 
   function resetForm() {
     setForm(emptyForm);
@@ -209,19 +292,34 @@ const Invigilations = () => {
     }
   }
 
+  const handleCancelInvigilation = async (invigilationId: string) => {
+    try {
+      await updateDoc(doc(db, "invigilations", invigilationId), {
+        status: "Cancelled",
+        updatedAt: serverTimestamp()
+      });
+      toast({ title: "Invigilation cancelled", description: "The invigilation request has been cancelled." });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to cancel invigilation.", variant: "destructive" as any });
+    }
+  };
+
   const filteredInvigilations = useMemo(() => {
     const term = searchTerm.toLowerCase();
     return invigilations.filter((invigilation) => {
       // Role-based filtering: 
       // - Admin/Coordinator see all requests
-      // - Lecturers see only their own requests
+      // - Lecturers see only their own requests (excluding Final Exam and Mid-term Exam)
       // - Staff/Intern see only tasks assigned to them
       let matchesRole = false;
+      let matchesType = true; // Default to true for non-lecturers
       
       if (userRole === "admin" || userRole === "coordinator") {
         matchesRole = true;
       } else if (userRole === "lecturer") {
         matchesRole = invigilation.userId === currentUser?.uid;
+        // Exclude Final Exam and Mid-term Exam for lecturers (these should only be in Exam Schedule)
+        matchesType = invigilation.type !== "Final Exam" && invigilation.type !== "Mid-term Exam";
       } else if (userRole === "staff" || userRole === "intern") {
         matchesRole = invigilation.assignedInvigilators?.includes(currentUser?.uid || "") || false;
       }
@@ -231,7 +329,7 @@ const Invigilations = () => {
         invigilation.lecturer.toLowerCase().includes(term) ||
         invigilation.venue.toLowerCase().includes(term);
       const matchesStatus = statusFilter === "all" || invigilation.status.toLowerCase() === statusFilter;
-      return matchesRole && matchesSearch && matchesStatus;
+      return matchesRole && matchesType && matchesSearch && matchesStatus;
     });
   }, [invigilations, searchTerm, statusFilter, userRole, currentUser]);
 
@@ -580,11 +678,24 @@ const Invigilations = () => {
                             <SelectValue placeholder="Select type" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Final Exam">Final Exam</SelectItem>
-                            <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
-                            <SelectItem value="Practical Test">Practical Test</SelectItem>
-                            <SelectItem value="Quiz">Quiz</SelectItem>
-                            <SelectItem value="Final Project">Final Project</SelectItem>
+                            {userRole === "lecturer" ? (
+                              // Lecturers can only create Practical Test, Quiz, and Final Project requests
+                              // Final Exam and Mid-term Exam should be created through Exam Schedule page
+                              <>
+                                <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                <SelectItem value="Quiz">Quiz</SelectItem>
+                                <SelectItem value="Final Project">Final Project</SelectItem>
+                              </>
+                            ) : (
+                              // Admin/Coordinator can create all types
+                              <>
+                                <SelectItem value="Final Exam">Final Exam</SelectItem>
+                                <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
+                                <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                <SelectItem value="Quiz">Quiz</SelectItem>
+                                <SelectItem value="Final Project">Final Project</SelectItem>
+                              </>
+                            )}
                           </SelectContent>
                         </Select>
                       </div>
@@ -800,7 +911,7 @@ const Invigilations = () => {
                                 {invigilation.assignedInvigilators.map((id) => (
                                   <div key={id} className="flex items-center justify-between bg-background rounded-md p-3 border">
                                     <div>
-                                      <p className="font-medium text-foreground">{idToName[id] || id}</p>
+                                      <p className="font-medium text-foreground">{invigilatorNames[id] || id}</p>
                                       {idToEmail[id] && <p className="text-xs text-muted-foreground">{idToEmail[id]}</p>}
                                     </div>
                                     <Badge variant="outline" className="text-xs">
@@ -841,7 +952,7 @@ const Invigilations = () => {
                                     {h.assigned && h.assigned.length > 0 && (
                                       <div className="mt-2 pt-2 border-t">
                                         <p className="text-xs text-muted-foreground">
-                                          {(h.assigned || []).map(id => idToName[id] || id).join(', ')}
+                                          {(h.assigned || []).map(id => invigilatorNames[id] || id).join(', ')}
                                         </p>
                                       </div>
                                     )}
@@ -866,6 +977,12 @@ const Invigilations = () => {
                         </div>
 
                         <DialogFooter className="pt-6">
+                          {(userRole === "lecturer" || userRole === "admin" || userRole === "coordinator") && 
+                           (invigilation.status === "Requested" || invigilation.status === "Pending") && (
+                            <Button variant="destructive" onClick={() => handleCancelInvigilation(invigilation.id)}>
+                              Cancel Request
+                            </Button>
+                          )}
                           <Button variant="outline" onClick={() => { setIsDetailsOpen(false); setSelected(null); }}>
                             Close
                           </Button>
@@ -931,7 +1048,7 @@ const Invigilations = () => {
                                 {assignedIds.map((id) => (
                                   <div key={id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-semibold text-gray-900 truncate">{idToName[id] || id}</p>
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{invigilatorNames[id] || id}</p>
                                       {idToEmail[id] && <p className="text-xs text-gray-500 truncate">{idToEmail[id]}</p>}
                                     </div>
                                     <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.filter((x) => x !== id))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
@@ -1021,11 +1138,24 @@ const Invigilations = () => {
                                     <SelectValue placeholder="Select type" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    <SelectItem value="Final Exam">Final Exam</SelectItem>
-                                    <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
-                                    <SelectItem value="Practical Test">Practical Test</SelectItem>
-                                    <SelectItem value="Quiz">Quiz</SelectItem>
-                                    <SelectItem value="Final Project">Final Project</SelectItem>
+                                    {userRole === "lecturer" ? (
+                                      // Lecturers can only edit Practical Test, Quiz, and Final Project requests
+                                      // Final Exam and Mid-term Exam should be managed through Exam Schedule page
+                                      <>
+                                        <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                        <SelectItem value="Quiz">Quiz</SelectItem>
+                                        <SelectItem value="Final Project">Final Project</SelectItem>
+                                      </>
+                                    ) : (
+                                      // Admin/Coordinator can edit all types
+                                      <>
+                                        <SelectItem value="Final Exam">Final Exam</SelectItem>
+                                        <SelectItem value="Mid-term Exam">Mid-term Exam</SelectItem>
+                                        <SelectItem value="Practical Test">Practical Test</SelectItem>
+                                        <SelectItem value="Quiz">Quiz</SelectItem>
+                                        <SelectItem value="Final Project">Final Project</SelectItem>
+                                      </>
+                                    )}
                                   </SelectContent>
                                 </Select>
                               </div>
