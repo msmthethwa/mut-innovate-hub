@@ -52,7 +52,7 @@ const Index = () => {
                 View Projects <ArrowRight className="ml-2 h-5 w-5" />
               </Button>
             </Link>
-            <Link to="/about">
+            <Link to="/learn-more">
               <Button size="lg" variant="outline" className="px-8 text-primary-foreground border-primary-foreground hover:bg-primary-foreground hover:text-primary">
                 Learn More
               </Button>
