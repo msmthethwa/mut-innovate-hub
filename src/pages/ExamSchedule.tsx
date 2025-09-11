@@ -123,17 +123,22 @@ const ExamSchedule = () => {
   useEffect(() => {
     if (!currentUser) return;
     
-    // Fetch approved invigilation requests as scheduled exams
-    // Using a more efficient query approach to avoid index issues
+    // Fetch ALL invigilation requests including cancelled ones for exam types
     const q = query(
       collection(db, "invigilations"), 
-      where("status", "in", ["Assigned", "Confirmed"]),
+      where("type", "in", ["Final Exam", "Mid-term Exam"]),
       orderBy("date", "asc")
     );
     
     const unsub = onSnapshot(q, (snap) => {
       const items: ExamSchedule[] = snap.docs.map((d) => {
         const data = d.data() as any;
+        // Map status from invigilation to exam schedule status
+        let status: ExamSchedule["status"] = "Scheduled";
+        if (data.status === "Cancelled") status = "Cancelled";
+        if (data.status === "Completed") status = "Completed";
+        if (data.status === "Postponed") status = "Postponed";
+        
         return {
           id: d.id,
           subject: data.subject,
@@ -144,7 +149,7 @@ const ExamSchedule = () => {
           userId: data.userId,
           studentCount: data.studentCount,
           invigilatorCount: data.invigilatorCount,
-          status: "Scheduled" as const, // All items from this query are scheduled
+          status: status,
           type: data.type,
           notes: data.notes,
           assignedInvigilators: data.assignedInvigilators,
@@ -155,12 +160,20 @@ const ExamSchedule = () => {
       setExams(items);
     }, (error) => {
       console.error("Error fetching exam schedule:", error);
-      // Fallback: fetch all invigilations and filter client-side if index is not ready
+      // Fallback query without filters
       const fallbackQuery = query(collection(db, "invigilations"), orderBy("date", "asc"));
       onSnapshot(fallbackQuery, (snap) => {
         const items = snap.docs
           .map((d) => {
             const data = d.data() as any;
+            // Only include Final Exam and Mid-term Exam types
+            if (data.type !== "Final Exam" && data.type !== "Mid-term Exam") return null;
+            
+            let status: ExamSchedule["status"] = "Scheduled";
+            if (data.status === "Cancelled") status = "Cancelled";
+            if (data.status === "Completed") status = "Completed";
+            if (data.status === "Postponed") status = "Postponed";
+            
             return {
               id: d.id,
               subject: data.subject,
@@ -171,7 +184,7 @@ const ExamSchedule = () => {
               userId: data.userId,
               studentCount: data.studentCount,
               invigilatorCount: data.invigilatorCount,
-              status: "Scheduled" as const,
+              status: status,
               type: data.type,
               notes: data.notes,
               assignedInvigilators: data.assignedInvigilators,
@@ -179,7 +192,7 @@ const ExamSchedule = () => {
               updatedAt: data.updatedAt
             };
           })
-          .filter(item => item.status === "Scheduled");
+          .filter(item => item !== null) as ExamSchedule[];
         setExams(items);
       });
     });
@@ -260,16 +273,39 @@ const ExamSchedule = () => {
     return filteredExams.filter(exam => exam.date === today && exam.status === "Scheduled");
   };
 
-
   const handleCancelExam = async (examId: string) => {
     try {
       await updateDoc(doc(db, "invigilations", examId), {
         status: "Cancelled",
         updatedAt: serverTimestamp()
       });
-      toast({ title: "Exam cancelled", description: "The exam has been cancelled." });
+      toast({ 
+        title: "Exam cancelled", 
+        description: "The exam has been cancelled successfully.",
+        variant: "default"
+      });
+      
+      // Update local state immediately for better UX
+      setExams(prevExams => 
+        prevExams.map(exam => 
+          exam.id === examId 
+            ? { ...exam, status: "Cancelled" as const }
+            : exam
+        )
+      );
+      
+      // Close the dialog if open
+      if (selected?.id === examId) {
+        setIsDetailsOpen(false);
+        setSelected(null);
+      }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to cancel exam.", variant: "destructive" as any });
+      console.error("Error cancelling exam:", error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to cancel exam. Please try again.", 
+        variant: "destructive" as any 
+      });
     }
   };
 
@@ -917,10 +953,19 @@ const ExamSchedule = () => {
                         </div>
 
                         <DialogFooter className="pt-6">
-                          {(userRole === "lecturer" || userRole === "admin" || userRole === "coordinator") && exam.status === "Scheduled" && (
-                            <Button variant="destructive" onClick={() => handleCancelExam(exam.id)}>
-                              Cancel Exam
-                            </Button>
+                          {(userRole === "lecturer" || userRole === "admin" || userRole === "coordinator") && (
+                            <>
+                              {exam.status === "Scheduled" && (
+                                <Button variant="destructive" onClick={() => handleCancelExam(exam.id)}>
+                                  Cancel Exam
+                                </Button>
+                              )}
+                              {exam.status === "Cancelled" && (
+                                <Badge variant="destructive" className="px-4 py-2">
+                                  Exam Cancelled
+                                </Badge>
+                              )}
+                            </>
                           )}
                           <Button variant="outline" onClick={() => { setIsDetailsOpen(false); setSelected(null); }}>
                             Close
@@ -929,8 +974,9 @@ const ExamSchedule = () => {
                       </DialogContent>
                     </Dialog>
                     
-                    {/* Edit Button for lecturers */}
-                    {(userRole === "lecturer" || userRole === "admin" || userRole === "coordinator") && exam.status === "Scheduled" && (
+                    {/* Edit Button for lecturers - Only show for scheduled exams */}
+                    {(userRole === "lecturer" || userRole === "admin" || userRole === "coordinator") && 
+                     exam.status === "Scheduled" && (
                       <Dialog open={isEditOpen && selected?.id === exam.id} onOpenChange={(o) => { if (!o) { setIsEditOpen(false); setSelected(null); } }}>
                         <DialogTrigger asChild>
                           <Button variant="outline" size="sm" className="flex-1" onClick={() => { 
@@ -1075,4 +1121,3 @@ const ExamSchedule = () => {
 };
 
 export default ExamSchedule;
-

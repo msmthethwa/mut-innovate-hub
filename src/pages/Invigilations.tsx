@@ -34,7 +34,7 @@ type Invigilation = {
   userId: string;
   studentCount: number;
   invigilatorCount?: number;
-  status: "Confirmed" | "Pending" | "Requested" | "Assigned";
+  status: "Confirmed" | "Pending" | "Requested" | "Assigned" | "Cancelled";
   type: "Final Exam" | "Mid-term Exam" | "Practical Test" | "Quiz" | "Final Project" | string;
   notes?: string;
   assignedInvigilators?: string[];
@@ -75,6 +75,7 @@ const Invigilations = () => {
   const [userName, setUserName] = useState<string>("");
   const [userAssignedTasks, setUserAssignedTasks] = useState<Invigilation[]>([]);
   const [invigilatorNames, setInvigilatorNames] = useState<Record<string, string>>({});
+  const [invigilatorPhones, setInvigilatorPhones] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentUser) return;
@@ -159,12 +160,13 @@ const Invigilations = () => {
     return () => clearInterval(interval);
   }, [invigilations]);
 
-  // Fetch invigilator names from users collection
+  // Fetch invigilator names and phones from users collection
   useEffect(() => {
     const fetchInvigilatorNames = async () => {
       try {
         const namesMap: Record<string, string> = {};
-        
+        const phonesMap: Record<string, string> = {};
+
         // Get all unique invigilator IDs from invigilations
         const invigilatorIds = new Set<string>();
         invigilations.forEach(inv => {
@@ -176,23 +178,27 @@ const Invigilations = () => {
         // Fetch user details for each invigilator ID
         for (const id of invigilatorIds) {
           try {
-            const userDoc = await getDocs(query(collection(db, "users"), where("__name__", "==", id)));
-            if (!userDoc.empty) {
-              const userData = userDoc.docs[0].data();
+            const userDoc = await getDoc(doc(db, "users", id));
+            if (userDoc.exists()) {
+              const userData = userDoc.data();
               const firstName = userData.firstName || "";
               const lastName = userData.lastName || "";
               const fullName = firstName && lastName ? `${firstName} ${lastName}` : (userData.displayName || userData.email || id);
               namesMap[id] = fullName;
+              phonesMap[id] = userData.phone || "";
             } else {
               namesMap[id] = id; // Fallback to ID if user not found
+              phonesMap[id] = "";
             }
           } catch (error) {
             console.error(`Error fetching user ${id}:`, error);
             namesMap[id] = id; // Fallback to ID on error
+            phonesMap[id] = "";
           }
         }
-        
+
         setInvigilatorNames(namesMap);
+        setInvigilatorPhones(phonesMap);
       } catch (error) {
         console.error("Error fetching invigilator names:", error);
       }
@@ -298,9 +304,17 @@ const Invigilations = () => {
         status: "Cancelled",
         updatedAt: serverTimestamp()
       });
-      toast({ title: "Invigilation cancelled", description: "The invigilation request has been cancelled." });
+      toast({ 
+        title: "Invigilation cancelled", 
+        description: "The invigilation request has been cancelled successfully." 
+      });
     } catch (error) {
-      toast({ title: "Error", description: "Failed to cancel invigilation.", variant: "destructive" as any });
+      console.error("Error cancelling invigilation:", error);
+      toast({ 
+        title: "Error", 
+        description: "Failed to cancel invigilation.", 
+        variant: "destructive" as any 
+      });
     }
   };
 
@@ -339,6 +353,7 @@ const Invigilations = () => {
       case "Confirmed": return "default";
       case "Pending": return "secondary";
       case "Requested": return "outline";
+      case "Cancelled": return "destructive";
       default: return "outline";
     }
   };
@@ -355,18 +370,20 @@ const Invigilations = () => {
   };
 
   // Coordinator assignment dialog state
-  type Staff = { id: string; userId?: string; name?: string; email?: string; active?: boolean; available?: boolean };
+  type Staff = { id: string; userId?: string; name?: string; email?: string; active?: boolean; available?: boolean; phone?: string };
   const [staffPool, setStaffPool] = useState<Staff[]>([]);
   const [assignWorking, setAssignWorking] = useState(false);
   const [assignStatus, setAssignStatus] = useState<Invigilation["status"]>("Requested");
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
   const [idToName, setIdToName] = useState<Record<string, string>>({});
   const [idToEmail, setIdToEmail] = useState<Record<string, string>>({});
+  const [idToPhone, setIdToPhone] = useState<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
       try {
         const map: Record<string, string> = {};
+        const phoneMap: Record<string, string> = {};
         // Load staff names
         const staffSnap = await getDocs(query(collection(db, "staff")));
         staffSnap.docs.forEach((d) => {
@@ -376,29 +393,34 @@ const Invigilations = () => {
           const lastName = data.lastName || "";
           const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.email || key);
           const email = data.email || "";
+          const phone = data.phone || "";
           if (key && !map[key]) map[key] = name;
           if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+          if (key && phone) phoneMap[key] = phone;
         });
         // Load users with staff/intern role as fallback (only active and approved users)
         const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
         usersSnap.docs.forEach((d) => {
           const data = d.data() as any;
           const key = d.id;
-          
+
           // Only include users who are approved and active
           const status = data.status || "pending";
           const isActive = data.isActive !== false; // Default to true if not set
-          
+
           if (status === "approved" && isActive) {
             const firstName = data.firstName || "";
             const lastName = data.lastName || "";
             const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.displayName || data.email || key);
             const email = data.email || "";
+            const phone = data.phone || "";
             if (key && !map[key]) map[key] = name;
             if (key && email) setIdToEmail(prev => ({ ...prev, [key]: email }));
+            if (key && phone) phoneMap[key] = phone;
           }
         });
         setIdToName(map);
+        setIdToPhone(phoneMap);
       } catch (e) {
         // ignore name loading errors in UI
       }
@@ -409,20 +431,52 @@ const Invigilations = () => {
     // First try to load from staff collection
     const snap = await getDocs(query(collection(db, "staff"), where("active", "==", true)));
     let list = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
-    
+
     // If no staff found, fallback to users collection with active and approved users
     if (list.length === 0) {
       const usersSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["staff", "intern"])));
       list = usersSnap.docs
-        .map((d) => ({ id: d.id, userId: d.id, ...(d.data() as any) }))
+        .map((d) => {
+          const data = d.data() as any;
+          const key = d.id;
+          const firstName = data.firstName || "";
+          const lastName = data.lastName || "";
+          const name = firstName && lastName ? `${firstName} ${lastName}` : (data.name || data.displayName || data.email || key);
+          const email = data.email || "";
+          const phone = data.phone || "";
+          return { id: d.id, userId: d.id, name, email, phone, ...(d.data() as any) };
+        })
         .filter(user => {
           // Only include users who are approved and active
           const status = user.status || "pending";
           const isActive = user.isActive !== false; // Default to true if not set
           return status === "approved" && isActive;
         });
+    } else {
+      // For staff collection, fetch full names from users
+      for (let item of list) {
+        const userId = item.userId || item.id;
+        try {
+          const userDoc = await getDoc(doc(db, "users", userId));
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            const firstName = userData.firstName || "";
+            const lastName = userData.lastName || "";
+            item.name = firstName && lastName ? `${firstName} ${lastName}` : (userData.displayName || userData.email || userId);
+            item.email = userData.email || item.email;
+            item.phone = userData.phone || "";
+          } else {
+            item.name = item.name || item.email || userId;
+            item.phone = "";
+          }
+        } catch (error) {
+          console.error(`Error fetching user ${userId}:`, error);
+          item.name = item.name || item.email || userId;
+          item.phone = "";
+        }
+      }
     }
-    
+
     setStaffPool(list);
     return list as Staff[];
   }
@@ -779,7 +833,7 @@ const Invigilations = () => {
                     <span>{invigilation.time}</span>
                   </div>
 
-                  <div className="flex items-center text-sm">
+                  <div className="flex itemsCenter text-sm">
                     <MapPin className="h-4 w-4 mr-2 text-muted-foreground" />
                     <span>{invigilation.venue}</span>
                   </div>
@@ -890,7 +944,7 @@ const Invigilations = () => {
                                   <p className="text-xs text-muted-foreground">Lecturer</p>
                                 </div>
                               </div>
-                              <div className="flex items-center text-sm">
+                              <div className="flex itemsCenter text-sm">
                                 <User className="h-4 w-4 mr-3 text-muted-foreground" />
                                 <div>
                                   <p className="font-medium text-foreground">{invigilation.invigilatorCount || 1} needed</p>
@@ -926,7 +980,7 @@ const Invigilations = () => {
                           {/* Assignment History Section */}
                           {invigilation.assignmentHistory && invigilation.assignmentHistory.length > 0 && (
                             <div className="bg-muted/30 rounded-lg p-4">
-                              <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center">
+                              <h3 className="text-sm font-semibold text-foreground mb-3 flex itemsCenter">
                                 <Clock className="h-4 w-4 mr-2" />
                                 Assignment History
                               </h3>
@@ -989,7 +1043,7 @@ const Invigilations = () => {
                         </DialogFooter>
                       </DialogContent>
                     </Dialog>
-                    {(userRole === "admin" || userRole === "coordinator") ? (
+                    {(userRole === "admin" || userRole === "coordinator") && invigilation.status !== "Cancelled" ? (
                       <Dialog open={isAssignOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsAssignOpen(false); setSelected(null); } }}>
                         <DialogTrigger asChild>
                           <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setAssignedIds(invigilation.assignedInvigilators || []); setAssignStatus(invigilation.status); setIsAssignOpen(true); }}>
@@ -1028,6 +1082,7 @@ const Invigilations = () => {
                                         <p className={`text-xs ${s.available === false ? "text-red-500" : "text-green-600"}`}>
                                           {s.available === false ? "Unavailable" : "Available"}
                                         </p>
+                                        {s.phone && <p className="text-xs text-gray-500 truncate">{s.phone}</p>}
                                       </div>
                                       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
                                         <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.includes(s.id) ? prev : [...prev, s.id])} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
@@ -1048,13 +1103,14 @@ const Invigilations = () => {
                                 {assignedIds.map((id) => (
                                   <div key={id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-md p-3 shadow-sm hover:shadow-md transition gap-3">
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-sm font-semibold text-gray-900 truncate">{invigilatorNames[id] || id}</p>
+                                      <p className="text-sm font-semibold text-gray-900 truncate">{idToName[id] || id}</p>
                                       {idToEmail[id] && <p className="text-xs text-gray-500 truncate">{idToEmail[id]}</p>}
+                                      {idToPhone[id] && <p className="text-xs text-gray-500 truncate">{idToPhone[id]}</p>}
                                     </div>
                                     <Button size="sm" variant="outline" onClick={() => setAssignedIds((prev) => prev.filter((x) => x !== id))} className="px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-100 transition w-full sm:w-auto">
                                       Remove
                                     </Button>
-                                  </div>
+                                    </div>
                                 ))}
                                 {assignedIds.length === 0 && <p className="text-xs text-gray-500">No one assigned</p>}
                               </div>
@@ -1086,7 +1142,7 @@ const Invigilations = () => {
                       </DialogContent>
                       </Dialog>
                     ) : (
-                      (userRole === "lecturer") && (
+                      (userRole === "lecturer") && invigilation.status !== "Cancelled" && (
                         <Dialog open={isEditOpen && selected?.id === String(invigilation.id)} onOpenChange={(o) => { if (!o) { setIsEditOpen(false); setSelected(null); } }}>
                           <DialogTrigger asChild>
                             <Button size="sm" className="flex-1" onClick={() => { setSelected(invigilation as any); setForm({ subject: invigilation.subject, date: invigilation.date, time: invigilation.time, venue: invigilation.venue, lecturer: invigilation.lecturer, userId: invigilation.userId, studentCount: invigilation.studentCount, invigilatorCount: invigilation.invigilatorCount || 1, status: invigilation.status, type: invigilation.type, notes: invigilation.notes || "", assignedInvigilators: invigilation.assignedInvigilators || [] }); setIsEditOpen(true); }}>
