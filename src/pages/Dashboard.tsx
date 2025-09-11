@@ -53,7 +53,7 @@ const Dashboard = () => {
               subText: "tasks pending"
             },
             {
-              title: "My Projects",
+              title: "Projects",
               description: "Projects you're currently working on",
               route: "/projects",
               icon: FolderOpen,
