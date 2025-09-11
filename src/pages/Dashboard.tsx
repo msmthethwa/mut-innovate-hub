@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import NotificationsPanel from "@/components/NotificationsPanel";
+import { useRealtimeNotifications } from "@/hooks/useRealtimeNotifications";
 
 import {
   LayoutDashboard,
@@ -28,7 +29,7 @@ const Dashboard = () => {
   const [dashboardStats, setDashboardStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(0);
+  const { unreadCount: notificationCount } = useRealtimeNotifications();
 
   // Role-specific dashboard content
   const getDashboardContent = () => {
@@ -219,7 +220,6 @@ const Dashboard = () => {
         if (role) {
           setUserRole(role);
           await fetchDashboardData(user.uid, role);
-          await fetchNotificationCount(user.uid);
         } else {
           navigate('/login');
         }
@@ -322,22 +322,6 @@ const Dashboard = () => {
     }
   };
 
-  const fetchNotificationCount = async (userId: string) => {
-    try {
-      const notificationsQuery = query(
-        collection(db, "notifications"),
-        where("userId", "==", userId),
-        where("read", "==", false),
-        orderBy("timestamp", "desc"),
-        limit(10)
-      );
-      const notificationsSnapshot = await getDocs(notificationsQuery);
-      setNotificationCount(notificationsSnapshot.size);
-    } catch (error) {
-      console.error("Error fetching notifications:", error);
-      setNotificationCount(3); // Fallback count
-    }
-  };
 
   // Use real dashboard data or fallback to hardcoded content
   const stats = Object.keys(dashboardStats).length > 0 ? dashboardStats : getDashboardContent().stats;

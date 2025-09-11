@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/hooks/use-toast";
 import { 
   ArrowLeft, 
   BookOpen, 
@@ -16,9 +17,10 @@ import {
   TrendingUp
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { NotificationService } from "@/lib/notificationService";
 
 interface LearningModule {
   id: string;
@@ -48,17 +50,20 @@ interface UserProgress {
 
 const LearningProgress = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [modules, setModules] = useState<LearningModule[]>([]);
   const [userProgress, setUserProgress] = useState<UserProgress | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [user, setUser] = useState<any>(null);
 
   const categories = ['all', 'Technical Skills', 'Research Methods', 'Communication', 'Leadership', 'Innovation'];
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        await fetchLearningData(user.uid);
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        await fetchLearningData(currentUser.uid);
       } else {
         navigate('/login');
       }
@@ -110,6 +115,122 @@ const LearningProgress = () => {
       setUserProgress(demoProgress);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateModuleProgress = async (moduleId: string, newProgress: number) => {
+    if (!user || !userProgress) return;
+
+    try {
+      const module = modules.find(m => m.id === moduleId);
+      if (!module) return;
+
+      let status = module.status;
+      if (newProgress === 100) {
+        status = 'completed';
+      } else if (newProgress > 0) {
+        status = 'in-progress';
+      }
+
+      // Update module progress in database
+      await updateDoc(doc(db, "learningModules", moduleId), {
+        progress: newProgress,
+        status,
+        updatedAt: serverTimestamp()
+      });
+
+      // Update user progress
+      const completedCount = modules.filter(m => m.id === moduleId ? status === 'completed' : m.status === 'completed').length;
+      const totalPoints = userProgress.totalPoints + (newProgress === 100 ? (module.points || 50) : 0);
+
+      const updatedProgress = {
+        ...userProgress,
+        completedModules: completedCount,
+        totalPoints,
+        skillAreas: {
+          ...userProgress.skillAreas,
+          [getCategorySkill(module.category)]: Math.min(100, userProgress.skillAreas[getCategorySkill(module.category)] + (newProgress === 100 ? 10 : 0))
+        }
+      };
+
+      // Update user progress in database
+      const progressQuery = query(
+        collection(db, "userProgress"),
+        where("userId", "==", user.uid)
+      );
+      const progressSnapshot = await getDocs(progressQuery);
+      
+      if (!progressSnapshot.empty) {
+        await updateDoc(doc(db, "userProgress", progressSnapshot.docs[0].id), updatedProgress);
+      } else {
+        await addDoc(collection(db, "userProgress"), {
+          userId: user.uid,
+          ...updatedProgress
+        });
+      }
+
+      // Check for milestones and create notifications
+      if (newProgress === 100) {
+        const userData = await getUserData(user.uid);
+        await NotificationService.createLearningProgressNotification({
+          userId: user.uid,
+          userName: userData ? `${userData.firstName} ${userData.lastName}` : 'User',
+          skillName: module.title,
+          milestone: 'Module Completion',
+          progress: newProgress
+        });
+
+        // Check if skill area reached milestone
+        const skillArea = getCategorySkill(module.category);
+        const skillProgress = updatedProgress.skillAreas[skillArea];
+        if (skillProgress % 25 === 0 && skillProgress > userProgress.skillAreas[skillArea]) {
+          await NotificationService.createLearningProgressNotification({
+            userId: user.uid,
+            userName: userData ? `${userData.firstName} ${userData.lastName}` : 'User',
+            skillName: `${module.category} Skills`,
+            milestone: `${skillProgress}% Proficiency`,
+            progress: skillProgress
+          });
+        }
+      }
+
+      // Refresh data
+      await fetchLearningData(user.uid);
+      
+      toast({
+        title: "Progress Updated",
+        description: newProgress === 100 ? `Congratulations! You completed "${module.title}"` : `Progress saved for "${module.title}"`,
+        variant: newProgress === 100 ? "default" : "default"
+      });
+
+    } catch (error) {
+      console.error("Error updating module progress:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update progress",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const getCategorySkill = (category: string): keyof UserProgress['skillAreas'] => {
+    switch (category) {
+      case 'Technical Skills': return 'technical';
+      case 'Research Methods': return 'research';
+      case 'Communication': return 'communication';
+      case 'Leadership': return 'leadership';
+      default: return 'technical';
+    }
+  };
+
+  const getUserData = async (userId: string) => {
+    try {
+      const usersQuery = query(collection(db, "users"), where("__name__", "==", userId));
+      const usersSnapshot = await getDocs(usersQuery);
+      return usersSnapshot.empty ? null : usersSnapshot.docs[0].data();
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      return null;
     }
   };
 

@@ -16,6 +16,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import { useToast } from "@/hooks/use-toast";
+import { NotificationService } from "@/lib/notificationService";
 import {
   CheckCircle,
   Clock,
@@ -274,14 +275,30 @@ const Tasks = () => {
       const assignedUser = users.find(u => u.id === newTask.assignedTo);
       const project = projects.find(p => p.id === newTask.projectId);
       
-      await addDoc(collection(db, "tasks"), {
+      const taskRef = await addDoc(collection(db, "tasks"), {
         ...newTask,
         assigneeName: `${assignedUser?.firstName} ${assignedUser?.lastName}`,
         projectName: project?.name,
         status: "Pending",
+        createdBy: user.id,
+        createdByName: `${user.firstName} ${user.lastName}`,
         createdAt: new Date(),
         updatedAt: new Date()
       });
+
+      // Create notification for task assignment
+      if (assignedUser && project) {
+        await NotificationService.createTaskAssignmentNotification({
+          taskId: taskRef.id,
+          taskTitle: newTask.title,
+          projectName: project.name,
+          assignedToId: newTask.assignedTo,
+          assignedToName: `${assignedUser.firstName} ${assignedUser.lastName}`,
+          assignedById: user.id,
+          assignedByName: `${user.firstName} ${user.lastName}`,
+          dueDate: newTask.dueDate
+        });
+      }
       
       toast({
         title: "Success",
@@ -439,9 +456,23 @@ const Tasks = () => {
       await addDoc(collection(db, "tasks", selectedTask.id, "messages"), {
         text: messageText.trim(),
         userId: user.id,
+        userName: `${user.firstName} ${user.lastName}`,
         role: user.role,
         createdAt: serverTimestamp(),
       });
+
+      // Create notifications for task chat
+      const participants = await NotificationService.getTaskParticipants(selectedTask.id);
+      await NotificationService.createTaskChatNotification({
+        taskId: selectedTask.id,
+        taskTitle: selectedTask.title,
+        senderId: user.id,
+        senderName: `${user.firstName} ${user.lastName}`,
+        senderRole: user.role,
+        message: messageText.trim(),
+        participantIds: participants
+      });
+
       setMessageText("");
     } catch (error) {
       console.error("Error sending message:", error);

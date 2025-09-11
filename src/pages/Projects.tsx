@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { NotificationService } from "@/lib/notificationService";
 import {
   FolderOpen,
   Plus,
@@ -223,12 +224,24 @@ const Projects = () => {
   };
 
   const handleEditProjectSave = async () => {
-    if (!selectedProject) return;
+    if (!selectedProject || !user) return;
     try {
       await updateDoc(doc(db, "projects", selectedProject.id), {
         ...editProject,
         updatedAt: new Date()
       });
+
+      // Create notification for project update
+      const teamMembers = await NotificationService.getProjectTeamMembers(selectedProject.id);
+      await NotificationService.createProjectUpdateNotification({
+        projectId: selectedProject.id,
+        projectName: selectedProject.name,
+        updateType: "details",
+        updatedById: user.id,
+        updatedByName: `${user.firstName} ${user.lastName}`,
+        teamMembers
+      });
+
       toast({ title: "Success", description: "Project updated successfully" });
       setShowEditDialog(false);
       setSelectedProject(null);

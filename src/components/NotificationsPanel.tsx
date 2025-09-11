@@ -11,9 +11,17 @@ import {
   AlertTriangle,
   Info,
   Settings,
-  Trash2
+  Trash2,
+  MessageSquare,
+  FolderOpen,
+  Users,
+  Calendar,
+  TrendingUp,
+  Shield,
+  UserCheck,
+  UserX
 } from "lucide-react";
-import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { formatDistanceToNow } from "date-fns";
 
@@ -39,9 +47,35 @@ const NotificationsPanel = ({ isOpen, onClose }: NotificationsPanelProps) => {
 
   useEffect(() => {
     if (isOpen && auth.currentUser) {
-      fetchNotifications();
+      setupRealtimeNotifications();
     }
   }, [isOpen]);
+
+  const setupRealtimeNotifications = () => {
+    if (!auth.currentUser) return;
+
+    const notificationsQuery = query(
+      collection(db, "notifications"),
+      where("userId", "==", auth.currentUser.uid),
+      orderBy("timestamp", "desc")
+    );
+    
+    const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+      const notificationsData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate() || new Date()
+      })) as Notification[];
+
+      setNotifications(notificationsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error in realtime notifications:", error);
+      fetchNotifications(); // Fallback to regular fetch
+    });
+
+    return unsubscribe;
+  };
 
   const fetchNotifications = async () => {
     if (!auth.currentUser) return;
@@ -115,7 +149,37 @@ const NotificationsPanel = ({ isOpen, onClose }: NotificationsPanelProps) => {
     }
   };
 
-  const getTypeIcon = (type: string) => {
+  const getTypeIcon = (type: string, metadata?: any) => {
+    // Use metadata to determine more specific icons
+    if (metadata?.type) {
+      switch (metadata.type) {
+        case 'task_assignment':
+        case 'task_chat':
+          return <CheckCircle className="h-5 w-5 text-accent" />;
+        case 'project_update':
+        case 'project_progress':
+          return <FolderOpen className="h-5 w-5 text-primary" />;
+        case 'invigilation_assignment':
+        case 'invigilation_assigned':
+        case 'invigilation_cancelled':
+          return <Calendar className="h-5 w-5 text-destructive" />;
+        case 'learning_progress':
+        case 'team_learning_progress':
+          return <TrendingUp className="h-5 w-5 text-accent" />;
+        case 'access_request_pending':
+        case 'access_request_approved':
+        case 'access_request_rejected':
+          return <Users className="h-5 w-5 text-warning" />;
+        case 'account_active':
+          return <UserCheck className="h-5 w-5 text-accent" />;
+        case 'account_inactive':
+          return <UserX className="h-5 w-5 text-destructive" />;
+        default:
+          break;
+      }
+    }
+    
+    // Fallback to type-based icons
     switch (type) {
       case 'success':
         return <CheckCircle className="h-5 w-5 text-accent" />;
@@ -202,7 +266,7 @@ const NotificationsPanel = ({ isOpen, onClose }: NotificationsPanelProps) => {
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex items-start space-x-3 flex-1">
-                        {getTypeIcon(notification.type)}
+                        {getTypeIcon(notification.type, (notification as any).metadata)}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center space-x-2">
                             <h4 className={`text-sm font-medium ${
