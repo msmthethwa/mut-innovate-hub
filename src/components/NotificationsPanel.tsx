@@ -97,8 +97,6 @@ const NotificationsPanel = ({ isOpen, onClose }: NotificationsPanelProps) => {
       setNotifications(notificationsData);
     } catch (error) {
       console.error("Error fetching notifications:", error);
-      // Fallback to demo data
-      setNotifications(demoNotifications);
     } finally {
       setLoading(false);
     }
@@ -332,42 +330,5 @@ const NotificationsPanel = ({ isOpen, onClose }: NotificationsPanelProps) => {
   );
 };
 
-// Demo data for fallback
-const demoNotifications: Notification[] = [
-  {
-    id: "1",
-    title: "New Task Assigned",
-    message: "You have been assigned to work on the Mobile App UI project.",
-    type: "info",
-    read: false,
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-    actionUrl: "/tasks",
-    actionText: "View Task"
-  },
-  {
-    id: "2", 
-    title: "Project Milestone Completed",
-    message: "Great job! The research phase of Innovation Lab Website has been completed.",
-    type: "success",
-    read: false,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-  },
-  {
-    id: "3",
-    title: "Deadline Approaching",
-    message: "The Database Design task is due in 2 days. Please update your progress.",
-    type: "warning",
-    read: true,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 8), // 8 hours ago
-  },
-  {
-    id: "4",
-    title: "Welcome to MUT Innovation Lab",
-    message: "Your account has been approved. Welcome to the team!",
-    type: "success",
-    read: true,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), // 1 day ago
-  }
-];
 
 export default NotificationsPanel;
