@@ -1101,19 +1101,21 @@ const Tasks = () => {
                   </SelectContent>
                 </Select>
 
-                <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Assignee" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Assignees</SelectItem>
-                    {users.filter(u => u.role === 'staff' || u.role === 'intern').map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.firstName} {user.lastName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {user?.role === 'coordinator' && (
+                  <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue placeholder="Assignee" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Assignees</SelectItem>
+                      {users.filter(u => u.role === 'staff' || u.role === 'intern').map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.firstName} {user.lastName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
                 <Select value={projectFilter} onValueChange={setProjectFilter}>
                   <SelectTrigger className="w-[140px]">
@@ -1153,14 +1155,16 @@ const Tasks = () => {
                   {sortOrder === "asc" ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
                 </Button>
 
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="showArchived"
-                    checked={showArchived}
-                    onCheckedChange={(checked) => setShowArchived(checked as boolean)}
-                  />
-                  <Label htmlFor="showArchived" className="text-sm">Show Archived</Label>
-                </div>
+                {user?.role === 'coordinator' && (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="showArchived"
+                      checked={showArchived}
+                      onCheckedChange={(checked) => setShowArchived(checked as boolean)}
+                    />
+                    <Label htmlFor="showArchived" className="text-sm">Show Archived</Label>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -10,6 +10,8 @@ import { ArrowLeft, Bell, Lock, Palette, Globe, Shield } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { updatePassword, reauthenticateWithCredential, EmailAuthProvider } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 type AppSettings = {
   // General
@@ -86,6 +88,12 @@ const Settings = () => {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [initialSettings] = useState<AppSettings>(() => settings);
 
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
   // Apply appearance on mount and whenever related settings change
   useEffect(() => {
     applyAppearance(settings);
@@ -119,6 +127,62 @@ const Settings = () => {
     setSettings(loaded);
     applyAppearance(loaded);
     toast({ title: "Changes discarded", description: "Reverted to the last saved settings." });
+  }
+
+  async function handlePasswordUpdate() {
+    if (!newPassword || !confirmPassword || !currentPassword) {
+      toast({ title: "Error", description: "Please fill in all password fields.", variant: "destructive" });
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({ title: "Error", description: "Password must be at least 6 characters long.", variant: "destructive" });
+      return;
+    }
+
+    setIsUpdatingPassword(true);
+
+    try {
+      const user = auth.currentUser;
+      if (!user || !user.email) {
+        toast({ title: "Error", description: "User not authenticated.", variant: "destructive" });
+        return;
+      }
+
+      // Reauthenticate user with current password
+      const credential = EmailAuthProvider.credential(user.email, currentPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // Update password
+      await updatePassword(user, newPassword);
+
+      // Clear form
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+
+      toast({ title: "Success", description: "Password updated successfully." });
+    } catch (error: any) {
+      console.error("Password update error:", error);
+      let errorMessage = "Failed to update password.";
+
+      if (error.code === "auth/wrong-password") {
+        errorMessage = "Current password is incorrect.";
+      } else if (error.code === "auth/weak-password") {
+        errorMessage = "New password is too weak.";
+      } else if (error.code === "auth/requires-recent-login") {
+        errorMessage = "Please log in again to update your password.";
+      }
+
+      toast({ title: "Error", description: errorMessage, variant: "destructive" });
+    } finally {
+      setIsUpdatingPassword(false);
+    }
   }
 
   return (
@@ -283,18 +347,40 @@ const Settings = () => {
                   <h3 className="text-lg font-semibold">Change Password</h3>
                   <div className="space-y-2">
                     <Label htmlFor="current-password">Current Password</Label>
-                    <Input id="current-password" type="password" />
+                    <Input
+                      id="current-password"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Enter your current password"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New Password</Label>
-                    <Input id="new-password" type="password" />
+                    <Input
+                      id="new-password"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter your new password"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="confirm-password">Confirm Password</Label>
-                    <Input id="confirm-password" type="password" />
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm your new password"
+                    />
                   </div>
-                  <Button className="bg-mut-primary hover:bg-mut-primary/90">
-                    Update Password
+                  <Button
+                    className="bg-mut-primary hover:bg-mut-primary/90"
+                    onClick={handlePasswordUpdate}
+                    disabled={isUpdatingPassword}
+                  >
+                    {isUpdatingPassword ? "Updating..." : "Update Password"}
                   </Button>
                 </div>
 

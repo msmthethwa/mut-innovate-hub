@@ -978,14 +978,16 @@ const Projects = () => {
                   {sortOrder === "asc" ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
                 </Button>
 
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="showArchived"
-                    checked={showArchived}
-                    onCheckedChange={(checked) => setShowArchived(checked as boolean)}
-                  />
-                  <Label htmlFor="showArchived" className="text-sm">Show Archived</Label>
-                </div>
+                {user?.role === 'coordinator' && (
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="showArchived"
+                      checked={showArchived}
+                      onCheckedChange={(checked) => setShowArchived(checked as boolean)}
+                    />
+                    <Label htmlFor="showArchived" className="text-sm">Show Archived</Label>
+                  </div>
+                )}
               </div>
             </div>
 
