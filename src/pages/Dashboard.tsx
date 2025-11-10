@@ -70,6 +70,15 @@ const Dashboard = () => {
               color: "text-destructive",
               count: 2,
               subText: "upcoming duties"
+            },
+            {
+              title: "Attendance",
+              description: "Track your work hours and request leaves",
+              route: "/attendance",
+              icon: Clock,
+              color: "text-green-600",
+              count: 0,
+              subText: "clock in/out"
             }
           ]
         };
@@ -118,6 +127,15 @@ const Dashboard = () => {
               color: "text-green-600",
               count: 4,
               subText: "modules completed"
+            },
+            {
+              title: "Attendance",
+              description: "Track your work hours and request leaves",
+              route: "/attendance",
+              icon: Clock,
+              color: "text-blue-600",
+              count: 0,
+              subText: "clock in/out"
             }
           ]
         };
@@ -205,6 +223,15 @@ const Dashboard = () => {
               color: "text-destructive",
               count: 8,
               subText: "active assignments"
+            },
+            {
+              title: "Attendance Management",
+              description: "Monitor staff and intern attendance",
+              route: "/attendance",
+              icon: Clock,
+              color: "text-green-600",
+              count: 0,
+              subText: "track attendance"
             }
           ]
         };

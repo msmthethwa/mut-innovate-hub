@@ -445,3 +445,9 @@ export class NotificationService {
     }
   }
 }
+
+// Convenience export for simple notifications
+export const sendNotification = (data: { userId: string } & NotificationData) => {
+  const { userId, ...notificationData } = data;
+  return NotificationService.createNotification(userId, notificationData);
+};
