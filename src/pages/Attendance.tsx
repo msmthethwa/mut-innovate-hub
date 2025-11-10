@@ -34,20 +34,26 @@ const Attendance = () => {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        const userDoc = await getDocs(query(collection(db, "users"), where("email", "==", user.email)));
-        if (!userDoc.empty) {
-          const role = userDoc.docs[0].data().role;
-          setUserRole(role);
-          
-          if (role === "coordinator") {
-            await loadUsers();
-            await loadAttendanceRecords();
-            await loadLeaveRequests();
+      try {
+        if (user) {
+          const userDoc = await getDocs(query(collection(db, "users"), where("email", "==", user.email)));
+          if (!userDoc.empty) {
+            const role = userDoc.docs[0].data().role;
+            setUserRole(role);
+            
+            if (role === "coordinator") {
+              await loadUsers();
+              await loadAttendanceRecords();
+              await loadLeaveRequests();
+            }
           }
         }
+      } catch (error) {
+        console.error("Error loading attendance data:", error);
+        toast.error("Failed to load attendance data");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -60,46 +66,56 @@ const Attendance = () => {
   };
 
   const loadAttendanceRecords = async () => {
-    const startOfDay = new Date(selectedDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(selectedDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    try {
+      const startOfDay = new Date(selectedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(selectedDate);
+      endOfDay.setHours(23, 59, 59, 999);
 
-    let attendanceQuery = query(
-      collection(db, "attendance"),
-      where("date", ">=", Timestamp.fromDate(startOfDay)),
-      where("date", "<=", Timestamp.fromDate(endOfDay)),
-      orderBy("date", "desc")
-    );
+      let attendanceQuery = query(
+        collection(db, "attendance"),
+        where("date", ">=", Timestamp.fromDate(startOfDay)),
+        where("date", "<=", Timestamp.fromDate(endOfDay)),
+        orderBy("date", "desc")
+      );
 
-    const snapshot = await getDocs(attendanceQuery);
-    let records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      const snapshot = await getDocs(attendanceQuery);
+      let records = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
 
-    if (selectedUser !== "all") {
-      records = records.filter(r => r.userId === selectedUser);
+      if (selectedUser !== "all") {
+        records = records.filter(r => r.userId === selectedUser);
+      }
+
+      if (filterStatus !== "all") {
+        records = records.filter(r => r.status === filterStatus);
+      }
+
+      setAttendanceRecords(records);
+    } catch (error) {
+      console.error("Error loading attendance records:", error);
+      setAttendanceRecords([]);
     }
-
-    if (filterStatus !== "all") {
-      records = records.filter(r => r.status === filterStatus);
-    }
-
-    setAttendanceRecords(records);
   };
 
   const loadLeaveRequests = async () => {
-    let leaveQuery = query(collection(db, "leave_requests"), orderBy("requestedAt", "desc"));
-    const snapshot = await getDocs(leaveQuery);
-    let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+    try {
+      let leaveQuery = query(collection(db, "leave_requests"), orderBy("requestedAt", "desc"));
+      const snapshot = await getDocs(leaveQuery);
+      let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
 
-    if (filterStatus !== "all") {
-      requests = requests.filter(r => r.status === filterStatus);
+      if (filterStatus !== "all") {
+        requests = requests.filter(r => r.status === filterStatus);
+      }
+
+      if (selectedUser !== "all") {
+        requests = requests.filter(r => r.userId === selectedUser);
+      }
+
+      setLeaveRequests(requests);
+    } catch (error) {
+      console.error("Error loading leave requests:", error);
+      setLeaveRequests([]);
     }
-
-    if (selectedUser !== "all") {
-      requests = requests.filter(r => r.userId === selectedUser);
-    }
-
-    setLeaveRequests(requests);
   };
 
   const handleLeaveRequestAction = async (requestId: string, action: "approved" | "rejected", reason?: string) => {
